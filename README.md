@@ -72,13 +72,15 @@ make it exact:
 | `/` | search the book; `Enter` / `↑` `↓` walk the hits, `Esc` clears |
 | click a word | narrator jumps there |
 | 📍 | fix the sync: click the word the narrator is on |
+| 🔗 or `C` | copy a link to this moment (`?book=reality&t=1h15m30s`) |
 
 ## Hosted
 
 Live at **https://calliope-reader.vercel.app** (source: https://github.com/jonbell-lot23/calliope).
 The app is a static site (one file). The hosted shelf shows the sample book; hidden entries
 in `books.public.json` (media on Vercel Blob, streamed) unlock with `?book=<slug>` and are
-then remembered on that device. Otherwise:
+then remembered on that device. A link with `&t=` opens at that time; if that isn't where you
+were, the sidebar offers **Take me back**, and your old spot is in Recent places too. Otherwise:
 drag your PDF and audio onto the page and they are cached in your browser only.
 
 ## Files

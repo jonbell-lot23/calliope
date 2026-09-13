@@ -162,6 +162,7 @@ body.playing .ctl .play svg.tri { display:none; }
   aside .head, aside .foot, aside .search { display:none; }
   aside .now { margin:0; order:3; flex:none; }
   aside .now:not(.has-card) { display:none; }
+  aside .now.has-notice { display:flex; }
   aside.open .now { display:flex; }
   aside .now .lbl { display:none; }
   aside .now .txt { display:none; }
@@ -235,6 +236,7 @@ dialog .row .ghost { color:var(--cream-dim); }
     <div class="lbl"><span id="nowLbl">Narrator</span><i id="nowWhere"></i></div>
     <div class="txt" id="nowTxt"></div>
     <div class="results" id="results"></div>
+    <div class="apart notice" id="notice"><div id="noticeMsg"></div><div class="row"><button class="pri" id="noticeBack">Take me back</button><button id="noticeOk">Stay here</button></div></div>
     <div class="apart" id="apart">
       <div id="apartMsg"></div>
       <div class="row"><button class="pri" id="playHere">Play from here</button><button id="goNarr">Back to narrator</button></div>
@@ -259,6 +261,7 @@ dialog .row .ghost { color:var(--cream-dim); }
     <div class="chips" id="speeds"></div>
     <span class="sp"></span>
     <span class="pill" id="syncPill">no book</span>
+    <button class="pin" id="btnShare" title="Copy a link to this moment">🔗</button>
     <button class="pin" id="btnMark" title="Fix the sync: click the word the narrator is on">📍</button>
   </div>
 </aside>
@@ -310,7 +313,7 @@ const idb = {
 };
 
 // ------------------------------------------------------------------ loading
-async function openBook(pdfFile, audioFiles, wordsFile, served = null) {
+async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}) {
   if (!pdfFile) return toast('Pick a PDF');
   pause();
   S.served = served; S.loaded = false;
@@ -352,8 +355,14 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null) {
   S.you = S.narr; S.follow = true;
   await idb.set('last', served ? { served } : { pdf: pdfFile, audio: files, words: wordsFile || null });
   S.loaded = true;
-  const t = saved.time ?? timeForWord(S.narr);
+  let t = saved.time ?? timeForWord(S.narr);
   seekGlobal(t, { silent: true });
+  if (opts.t != null && S.dur) { // a shared link: go there, but keep the way back
+    const was = { t, i: S.narr };
+    t = Math.min(Math.max(0, opts.t), S.dur - 1);
+    if (Math.abs(t - was.t) > 30 && was.t > 2) { remember(); showNotice(`This link took you to p. ${S.words[wordForTime(t)].p} · ${fmt(t)}. You were on p. ${S.words[was.i].p} · ${fmt(was.t)}.`, was); }
+    S.narr = wordForTime(t); seekGlobal(t, { silent: true });
+  }
   lastSent = -1; paintNarrator(S.narr, t, true);
   book.classList.add('instant'); scrollToWord(S.narr); requestAnimationFrame(() => book.classList.remove('instant'));
   $('nowWhere').textContent = `${S.pages.length} pages · ${fmt(S.dur)}`;
@@ -625,6 +634,30 @@ $('pages').addEventListener('click', e => {
   updateApart();
 });
 
+// ------------------------------------------------------------------ shared links & the way back
+function parseTime(v) { // "4500", "1:15:00", "1h15m", "75m", "1h15m30s"
+  if (!v) return null; v = v.trim();
+  if (/^\d+(\.\d+)?$/.test(v)) return +v;
+  if (/^\d+(:\d+){1,2}$/.test(v)) return v.split(':').reduce((a, x) => a * 60 + +x, 0);
+  const m = v.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/i); if (m && (m[1] || m[2] || m[3])) return (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0);
+  return null;
+}
+let noticeBack = null;
+function showNotice(msg, was) { noticeBack = was; $('noticeMsg').textContent = msg; $('notice').classList.add('on'); document.querySelector('.now').classList.add('has-notice'); }
+function hideNotice() { noticeBack = null; $('notice').classList.remove('on'); document.querySelector('.now').classList.remove('has-notice'); }
+$('noticeBack').onclick = () => { if (!noticeBack) return; const w = noticeBack; hideNotice(); S.follow = true; seekGlobal(w.t); scrollToWord(S.narr); updateApart(); };
+$('noticeOk').onclick = hideNotice;
+function shareLink() {
+  if (!S.loaded) return;
+  const t = Math.floor(globalTime()), h = t / 3600 | 0, m = (t % 3600) / 60 | 0, sec = t % 60;
+  const stamp = (h ? h + 'h' : '') + (m ? m + 'm' : '') + (sec || !t ? sec + 's' : '');
+  const key = S.served?.slug || S.served?.title || '';
+  if (!key) return toast('Only served books can be linked');
+  const url = `${location.origin}${location.pathname}?book=${encodeURIComponent(key)}&t=${stamp}`;
+  navigator.clipboard?.writeText(url).then(() => toast(`Link copied · p. ${S.words[S.narr].p} · ${fmt(t)}`), () => prompt('Copy this link', url));
+}
+$('btnShare').onclick = shareLink;
+
 // ------------------------------------------------------------------ recent places
 function remember() {
   if (!S.loaded || S.cur < 0) return;
@@ -726,6 +759,7 @@ addEventListener('keydown', e => {
   else if (e.key === 'ArrowLeft') seekGlobal(globalTime() - 15);
   else if (e.key === 'ArrowRight') seekGlobal(globalTime() + 15);
   else if (e.key === 'Enter') $('goNarr').onclick();
+  else if (e.key === 'c' || e.key === 'C') shareLink();
   else if (e.key === 'Escape' && S.marking) endMark();
 });
 
@@ -740,14 +774,14 @@ addEventListener('drop', async e => {
 const fetchFile = async u => { const r = await fetch(u); if (!r.ok) throw new Error(u); return new File([await r.blob()], decodeURIComponent(u.split('/').pop())); };
 let pollT = 0;
 function applyTranscript(json) { S.transcript = json; buildAutoAnchors(); rebuildAnchors(); }
-async function openServed(b) {
-  clearInterval(pollT);
+async function openServed(b, opts = {}) {
+  clearInterval(pollT); hideNotice();
   $('syncPill').className = 'pill'; $('syncPill').textContent = 'fetching…'; $('title').textContent = b.title; $('by').textContent = b.author || '';
   try {
     const pdf = await fetchFile(b.pdf);
     const aud = await Promise.all((b.audio || []).map(u => /^https?:/.test(u) ? u : fetchFile(u)));
     let words = null; if (b.words) { try { words = await fetchFile(b.words); } catch {} }
-    await openBook(pdf, aud, words, b);
+    await openBook(pdf, aud, words, b, opts);
     if (!words && b.words) pollT = setInterval(async () => { // transcript not there yet: keep checking
       try { const r = await fetch(b.words, { cache: 'no-store' }); if (!r.ok) return; applyTranscript(await r.json()); clearInterval(pollT); toast('Transcript arrived. Sync is now exact.'); } catch {}
     }, 30000);
@@ -774,7 +808,7 @@ async function loadShelf() {
     if (b) {
       if (b.hidden) { const u = JSON.parse(localStorage.getItem('rl:unlocked') || '[]'); if (!u.includes(b.title)) { u.push(b.title); localStorage.setItem('rl:unlocked', JSON.stringify(u)); toast('Unlocked: ' + b.title); } b.hidden = false; }
       history.replaceState(null, '', location.pathname);
-      return openServed(b);
+      return openServed(b, { t: parseTime(q.get('t')) });
     }
   }
   if (q.get('pdf')) {
