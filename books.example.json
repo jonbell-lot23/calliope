@@ -1,0 +1,12 @@
+[
+  {
+    "title": "Example Book",
+    "author": "Author",
+    "cover": "books/example/cover.jpg",
+    "pdf": "books/example/example-book.pdf",
+    "audio": [
+      "books/example/example-book.mp3"
+    ],
+    "words": "books/example/example-book.words.json"
+  }
+]
