@@ -680,15 +680,15 @@ function updateApart() {
   if (!apart && performance.now() - lastHand > 1500) S.follow = true;
 }
 
-// click a word: the narrator jumps there
+// tap a word: the narrator jumps there and starts reading
 $('pages').addEventListener('click', e => {
   const el = e.target.closest('.w'); if (!el) return;
   const i = +el.dataset.i;
   if (S.marking) { S.manual.push([i, globalTime()]); rebuildAnchors(); save(); endMark(); toast('Marked. Sync adjusted around here.'); S.follow = true; return; }
   remember(); S.follow = true; S.you = i;
-  seekGlobal(timeForWord(i));
+  seekGlobal(timeForWord(i)); play();
   updateApart();
-  toast(`p. ${S.words[i].p} · ${fmt(globalTime())}` + (audio.paused ? ' · press play' : ''));
+  toast(`p. ${S.words[i].p} · ${fmt(globalTime())}`);
 });
 
 // ------------------------------------------------------------------ shared links & the way back
@@ -776,8 +776,8 @@ $('flow').addEventListener('click', e => {
   const el = e.target.closest('.s'); dlog('tap flow', el ? 's' + el.dataset.s : 'miss:' + e.target.tagName + '.' + e.target.className); if (!el) return;
   const i = S.sentences[+el.dataset.s].a;
   if (S.marking) { S.manual.push([i, globalTime()]); rebuildAnchors(); save(); endMark(); toast('Marked. Sync adjusted around here.'); S.follow = true; return; }
-  remember(); S.follow = true; S.you = i; seekGlobal(timeForWord(i)); updateApart();
-  toast(`p. ${S.words[i].p} · ${fmt(globalTime())}` + (audio.paused ? ' · press play' : ''));
+  remember(); S.follow = true; S.you = i; seekGlobal(timeForWord(i)); play(); updateApart();
+  toast(`p. ${S.words[i].p} · ${fmt(globalTime())}`);
 });
 
 if (DEBUG) { $('flow').addEventListener('touchend', e => dlog('touchend flow', e.target.tagName + '.' + e.target.className), { passive: true }); audio.addEventListener('seeked', () => dlog('seeked ct' + (audio.currentTime | 0))); audio.addEventListener('error', () => dlog('audio error', audio.error?.code)); }
@@ -792,7 +792,7 @@ addEventListener('beforeunload', save);
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
-const VERSION = '2026-09-13.8';
+const VERSION = '2026-09-13.9';
 if (new URLSearchParams(location.search).has('debug')) setInterval(() => { $('tPage').textContent = `v${VERSION} rs${audio.readyState} ct${audio.currentTime | 0} want${wantLocal == null ? '·' : wantLocal | 0} f${S.cur} dur${S.dur | 0} far${S.far | 0}`; }, 1000);
 $('ver').textContent = 'Calliope build ' + VERSION;
 const SPEEDS = [1, 1.25, 1.5, 2];
