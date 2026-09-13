@@ -317,6 +317,10 @@ const S = {
   far:0,         // the furthest you've ever been in this book (seconds)
 };
 window.__S = S; // for debugging in the console
+const DEBUG = new URLSearchParams(location.search).has('debug');
+const dlog = (...a) => { if (!DEBUG) return; let d = document.getElementById('dbg'); if (!d) { d = document.createElement('pre'); d.id = 'dbg'; d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99;margin:0;padding:6px 8px;background:rgba(0,0,0,.8);color:#9f9;font:11px/1.35 monospace;white-space:pre-wrap;pointer-events:none;max-height:40vh;overflow:hidden'; document.body.appendChild(d); } d.textContent = (a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ') + '\n' + d.textContent).split('\n').slice(0, 12).join('\n'); };
+addEventListener('error', e => dlog('ERR', e.message, (e.filename || '').split('/').pop() + ':' + e.lineno));
+addEventListener('unhandledrejection', e => dlog('REJ', String(e.reason)));
 
 // ------------------------------------------------------------------ utils
 const norm = s => s.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -538,13 +542,14 @@ let wantLocal = null; // where we asked the current file to be, until it's confi
 function globalTime() { return S.cur < 0 ? 0 : S.offsets[S.cur] + (wantLocal ?? audio.currentTime); }
 function loadFile(i) { if (i === S.cur || i < 0 || i >= S.audioFiles.length) return; if (audio.src?.startsWith('blob:')) URL.revokeObjectURL(audio.src); S.cur = i; wantLocal = null; const f = S.audioFiles[i]; audio.src = typeof f === 'string' ? f : URL.createObjectURL(f); audio.playbackRate = S.speed; }
 // iOS Safari drops a currentTime set before metadata is in, and sometimes again on the first play; keep asking until it lands
-function setTime(local) { wantLocal = local; if (audio.readyState >= 1) audio.currentTime = local; }
+function setTime(local) { wantLocal = local; if (audio.readyState >= 1) { try { audio.currentTime = local; } catch (e) { dlog('currentTime threw', String(e)); } } dlog('setTime', local | 0, 'now ct' + (audio.currentTime | 0)); }
 function settleSeek() { if (wantLocal == null) return; if (Math.abs(audio.currentTime - wantLocal) < 1.5) wantLocal = null; else if (audio.readyState >= 1) audio.currentTime = wantLocal; }
 for (const ev of ['loadedmetadata', 'canplay', 'playing', 'seeked', 'timeupdate']) audio.addEventListener(ev, settleSeek);
 audio.addEventListener('loadedmetadata', () => { // a real duration beats a guessed one
   const d = audio.duration; if (S.cur >= 0 && isFinite(d) && d > 0 && Math.abs(d - S.durs[S.cur]) > 1) { S.durs[S.cur] = d; reoffset(); }
 });
 function seekGlobal(t, opts = {}) {
+  dlog('seek', t | 0, 'rs' + audio.readyState, 'cur' + S.cur, opts.silent ? 'silent' : '');
   if (!S.audioFiles.length) return;
   t = Math.min(Math.max(0, t), Math.max(0, S.dur - 0.5));
   let i = 0; while (i + 1 < S.offsets.length && S.offsets[i+1] <= t) i++;
@@ -683,6 +688,7 @@ $('pages').addEventListener('click', e => {
   remember(); S.follow = true; S.you = i;
   seekGlobal(timeForWord(i));
   updateApart();
+  toast(`p. ${S.words[i].p} · ${fmt(globalTime())}` + (audio.paused ? ' · press play' : ''));
 });
 
 // ------------------------------------------------------------------ shared links & the way back
@@ -762,17 +768,19 @@ $('q').addEventListener('keydown', e => {
   else if (e.key === 'ArrowUp') { e.preventDefault(); goHit(sel - 1); }
 });
 $('qClear').onclick = () => { $('q').value = ''; runSearch(); };
-$('results').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.r != null) { const r = S.recent[+b.dataset.r]; $('q').blur(); goTo(r.i, r.t); } else goHit(+b.dataset.k); });
+$('results').addEventListener('click', e => { const b = e.target.closest('button'); dlog('tap result', b ? (b.dataset.r ?? 'hit' + b.dataset.k) : 'miss'); if (!b) return; if (b.dataset.r != null) { const r = S.recent[+b.dataset.r]; $('q').blur(); goTo(r.i, r.t); } else goHit(+b.dataset.k); });
 $('q').addEventListener('focus', runSearch);
 $('q').addEventListener('blur', () => { if (!$('q').value.trim()) setTimeout(() => { if (!$('q').value.trim() && document.activeElement !== $('q')) { aside.classList.remove('searching'); $('nowLbl').textContent = 'Narrator'; } }, 150); });
 
 $('flow').addEventListener('click', e => {
-  const el = e.target.closest('.s'); if (!el) return;
+  const el = e.target.closest('.s'); dlog('tap flow', el ? 's' + el.dataset.s : 'miss:' + e.target.tagName + '.' + e.target.className); if (!el) return;
   const i = S.sentences[+el.dataset.s].a;
   if (S.marking) { S.manual.push([i, globalTime()]); rebuildAnchors(); save(); endMark(); toast('Marked. Sync adjusted around here.'); S.follow = true; return; }
   remember(); S.follow = true; S.you = i; seekGlobal(timeForWord(i)); updateApart();
+  toast(`p. ${S.words[i].p} · ${fmt(globalTime())}` + (audio.paused ? ' · press play' : ''));
 });
 
+if (DEBUG) { $('flow').addEventListener('touchend', e => dlog('touchend flow', e.target.tagName + '.' + e.target.className), { passive: true }); audio.addEventListener('seeked', () => dlog('seeked ct' + (audio.currentTime | 0))); audio.addEventListener('error', () => dlog('audio error', audio.error?.code)); }
 // ------------------------------------------------------------------ marking (fix sync)
 function startMark() { if (!S.audioFiles.length) return toast('No audio in this book'); S.marking = true; S.follow = false; document.body.classList.add('marking'); $('banner').classList.add('on'); play(); }
 function endMark() { S.marking = false; document.body.classList.remove('marking'); $('banner').classList.remove('on'); }
@@ -784,7 +792,7 @@ addEventListener('beforeunload', save);
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
-const VERSION = '2026-09-13.7';
+const VERSION = '2026-09-13.8';
 if (new URLSearchParams(location.search).has('debug')) setInterval(() => { $('tPage').textContent = `v${VERSION} rs${audio.readyState} ct${audio.currentTime | 0} want${wantLocal == null ? '·' : wantLocal | 0} f${S.cur} dur${S.dur | 0} far${S.far | 0}`; }, 1000);
 $('ver').textContent = 'Calliope build ' + VERSION;
 const SPEEDS = [1, 1.25, 1.5, 2];
