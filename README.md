@@ -76,7 +76,9 @@ make it exact:
 ## Hosted
 
 Live at **https://calliope-reader.vercel.app** (source: https://github.com/jonbell-lot23/calliope).
-The app is a static site (one file). Hosted copies carry only the sample book:
+The app is a static site (one file). The hosted shelf shows the sample book; hidden entries
+in `books.public.json` (media on Vercel Blob, streamed) unlock with `?book=<slug>` and are
+then remembered on that device. Otherwise:
 drag your PDF and audio onto the page and they are cached in your browser only.
 
 ## Files
