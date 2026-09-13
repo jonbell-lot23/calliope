@@ -7,5 +7,17 @@
       "sample/sample.mp3"
     ],
     "words": "sample/sample.words.json"
+  },
+  {
+    "title": "Reality Is Broken",
+    "author": "Jane McGonigal",
+    "slug": "reality",
+    "hidden": true,
+    "cover": "https://wiwaaa0xjxl3hdmt.public.blob.vercel-storage.com/reality-is-broken/cover-feUvGPvP4iA1H1hs4uHOGdDHUfVxPy.jpg",
+    "pdf": "https://wiwaaa0xjxl3hdmt.public.blob.vercel-storage.com/reality-is-broken/reality-is-broken-book-me2cppx2VRt1Drz7UUCCEAYWVTFFYf.pdf",
+    "audio": [
+      "https://wiwaaa0xjxl3hdmt.public.blob.vercel-storage.com/reality-is-broken/reality-is-broken-book-MUDt11qnl1w3oRwG0eyUY3U13pNtgj.mp3"
+    ],
+    "words": "https://wiwaaa0xjxl3hdmt.public.blob.vercel-storage.com/reality-is-broken/reality-is-broken-book.words-Y4exf6kAfq8AUrP4pEPz9XQLBjOCp8.json"
   }
 ]

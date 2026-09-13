@@ -3,3 +3,4 @@ books.json
 .vercel
 .DS_Store
 node_modules/
+.env*.local

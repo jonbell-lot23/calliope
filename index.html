@@ -328,12 +328,13 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null) {
 
   let files = [...(audioFiles || [])];
   if (S.transcript?.files?.length) { const order = S.transcript.files.map(f => f.name); files.sort((a, b) => { const ia = order.indexOf(a.name), ib = order.indexOf(b.name); return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib); }); }
-  else files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  else if (files.every(f => f.name)) files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   S.audioFiles = files; S.cur = -1; audio.removeAttribute('src');
+  const isUrl = f => typeof f === 'string';
   S.durs = await Promise.all(files.map(f => {
     const t = S.transcript?.files?.find(x => x.name === f.name);
     if (t?.duration && files.length > 1) return t.duration;
-    return new Promise(res => { const a = new Audio(); const u = URL.createObjectURL(f); a.preload = 'metadata'; a.onloadedmetadata = () => { res(a.duration); URL.revokeObjectURL(u); }; a.onerror = () => res(0); a.src = u; });
+    return new Promise(res => { const a = new Audio(); const u = isUrl(f) ? f : URL.createObjectURL(f); a.preload = 'metadata'; a.onloadedmetadata = () => { res(a.duration); if (!isUrl(f)) URL.revokeObjectURL(u); }; a.onerror = () => res(0); a.src = u; });
   }));
   S.offsets = []; let acc = 0; for (const d of S.durs) { S.offsets.push(acc); acc += d; } S.dur = acc;
 
@@ -482,7 +483,7 @@ function wordForTime(t) {
 
 // ------------------------------------------------------------------ audio
 function globalTime() { return S.cur < 0 ? 0 : S.offsets[S.cur] + audio.currentTime; }
-function loadFile(i) { if (i === S.cur || i < 0 || i >= S.audioFiles.length) return; if (audio.src) URL.revokeObjectURL(audio.src); S.cur = i; audio.src = URL.createObjectURL(S.audioFiles[i]); audio.playbackRate = S.speed; }
+function loadFile(i) { if (i === S.cur || i < 0 || i >= S.audioFiles.length) return; if (audio.src?.startsWith('blob:')) URL.revokeObjectURL(audio.src); S.cur = i; const f = S.audioFiles[i]; audio.src = typeof f === 'string' ? f : URL.createObjectURL(f); audio.playbackRate = S.speed; }
 function seekGlobal(t, opts = {}) {
   if (!S.audioFiles.length) return;
   t = Math.min(Math.max(0, t), Math.max(0, S.dur - 0.5));
@@ -744,7 +745,7 @@ async function openServed(b) {
   $('syncPill').className = 'pill'; $('syncPill').textContent = 'fetching…'; $('title').textContent = b.title; $('by').textContent = b.author || '';
   try {
     const pdf = await fetchFile(b.pdf);
-    const aud = await Promise.all((b.audio || []).map(fetchFile));
+    const aud = await Promise.all((b.audio || []).map(u => /^https?:/.test(u) ? u : fetchFile(u)));
     let words = null; if (b.words) { try { words = await fetchFile(b.words); } catch {} }
     await openBook(pdf, aud, words, b);
     if (!words && b.words) pollT = setInterval(async () => { // transcript not there yet: keep checking
@@ -756,8 +757,10 @@ async function loadShelf() {
   try {
     let r = await fetch('books.json', { cache: 'no-store' }); if (!r.ok) r = await fetch('books.public.json', { cache: 'no-store' }); // hosted copies carry only the sample
     const books = await r.json();
-    $('shelfList').innerHTML = books.map((b, i) => `<button data-i="${i}">${b.cover ? `<img src="${b.cover}" alt="">` : '<div class="ph"></div>'}<div><b>${esc(b.title)}</b><small>${esc(b.author || '')}</small></div></button>`).join('');
-    $('shelfList').onclick = e => { const el = e.target.closest('button'); if (el) { $('dlg').close(); openServed(books[+el.dataset.i]); } };
+    const unlocked = JSON.parse(localStorage.getItem('rl:unlocked') || '[]');
+    books.forEach(b => { if (b.hidden && unlocked.includes(b.title)) b.hidden = false; });
+    $('shelfList').innerHTML = books.filter(b => !b.hidden).map((b, i) => `<button data-i="${i}">${b.cover ? `<img src="${b.cover}" alt="">` : '<div class="ph"></div>'}<div><b>${esc(b.title)}</b><small>${esc(b.author || '')}</small></div></button>`).join('');
+    $('shelfList').onclick = e => { const el = e.target.closest('button'); if (el) { $('dlg').close(); openServed(books.filter(b => !b.hidden)[+el.dataset.i]); } };
     return books;
   } catch { return []; }
 }
@@ -765,7 +768,15 @@ async function loadShelf() {
 (async () => {
   const books = await loadShelf();
   const q = new URLSearchParams(location.search);
-  if (q.get('book')) { const b = books.find(x => x.title.toLowerCase().includes(q.get('book').toLowerCase())); if (b) return openServed(b); }
+  if (q.get('book')) {
+    const key = q.get('book').toLowerCase();
+    const b = books.find(x => x.title.toLowerCase().includes(key) || (x.slug || '').toLowerCase() === key);
+    if (b) {
+      if (b.hidden) { const u = JSON.parse(localStorage.getItem('rl:unlocked') || '[]'); if (!u.includes(b.title)) { u.push(b.title); localStorage.setItem('rl:unlocked', JSON.stringify(u)); toast('Unlocked: ' + b.title); } b.hidden = false; }
+      history.replaceState(null, '', location.pathname);
+      return openServed(b);
+    }
+  }
   if (q.get('pdf')) {
     try { return openBook(await fetchFile(q.get('pdf')), await Promise.all((q.get('audio') || '').split(',').filter(Boolean).map(fetchFile)), q.get('words') ? await fetchFile(q.get('words')) : null); }
     catch (e) { toast('Could not load ' + e.message); }
