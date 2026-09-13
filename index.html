@@ -540,7 +540,7 @@ function wordForTime(t) {
 function reoffset() { S.offsets = []; let acc = 0; for (const d of S.durs) { S.offsets.push(acc); acc += d; } S.dur = acc; }
 let wantLocal = null; // where we asked the current file to be, until it's confirmed there
 function globalTime() { return S.cur < 0 ? 0 : S.offsets[S.cur] + (wantLocal ?? audio.currentTime); }
-function loadFile(i) { if (i === S.cur || i < 0 || i >= S.audioFiles.length) return; if (audio.src?.startsWith('blob:')) URL.revokeObjectURL(audio.src); S.cur = i; wantLocal = null; const f = S.audioFiles[i]; audio.src = typeof f === 'string' ? f : URL.createObjectURL(f); audio.playbackRate = S.speed; }
+function loadFile(i) { if (i === S.cur || i < 0 || i >= S.audioFiles.length) return; if (audio.src?.startsWith('blob:')) URL.revokeObjectURL(audio.src); S.cur = i; wantLocal = null; const f = S.audioFiles[i]; audio.src = typeof f === 'string' ? f : URL.createObjectURL(f); audio.defaultPlaybackRate = S.speed; }
 // iOS Safari drops a currentTime set before metadata is in, and sometimes again on the first play; keep asking until it lands
 let seekTries = 0;
 function setTime(local) { wantLocal = local; seekTries = 0; if (audio.readyState >= 1) { try { audio.currentTime = local; } catch (e) { dlog('currentTime threw', String(e)); } } dlog('setTime', local | 0, 'now ct' + (audio.currentTime | 0)); }
@@ -798,15 +798,17 @@ addEventListener('beforeunload', save);
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
-const VERSION = '2026-09-13.10';
+const VERSION = '2026-09-13.11';
 if (new URLSearchParams(location.search).has('debug')) setInterval(() => { $('tPage').textContent = `v${VERSION} rs${audio.readyState} ct${audio.currentTime | 0} want${wantLocal == null ? '·' : wantLocal | 0} f${S.cur} dur${S.dur | 0} far${S.far | 0}`; }, 1000);
 $('ver').textContent = 'Calliope build ' + VERSION;
 const SPEEDS = [1, 1.25, 1.5, 2];
 $('speeds').innerHTML = SPEEDS.map(s => `<button data-s="${s}">${s}×</button>`).join('');
-function setSpeed(s) { S.speed = s; audio.playbackRate = audio.defaultPlaybackRate = s; $('speeds').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.s === s)); }
+function setSpeed(s) { S.speed = s; audio.defaultPlaybackRate = s; applyRate('setSpeed'); $('speeds').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.s === s)); }
+// iOS throws the position back to 0 if playbackRate changes around a seek; only touch it when the element is settled
+function applyRate(why) { if (audio.playbackRate === S.speed) return; if (audio.seeking || wantLocal != null || audio.readyState < 2) { dlog('rate deferred', why); return; } audio.playbackRate = S.speed; dlog('rate set', S.speed, why); }
+for (const ev of ['canplay', 'seeked', 'playing']) audio.addEventListener(ev, () => applyRate(ev));
+audio.addEventListener('ratechange', () => dlog('ratechange', audio.playbackRate, 'ct' + (audio.currentTime | 0)));
 $('speeds').onclick = e => { const b = e.target.closest('button'); if (b) { setSpeed(+b.dataset.s); localStorage.setItem('rl:speed', b.dataset.s); save(); } };
-// some browsers quietly reset playbackRate when a new source loads; put it back
-for (const ev of ['loadedmetadata', 'play']) audio.addEventListener(ev, () => { if (audio.playbackRate !== S.speed) audio.playbackRate = S.speed; });
 
 $('play').onclick = () => audio.paused ? play() : pause();
 $('back').onclick = () => seekGlobal(globalTime() - 15);
