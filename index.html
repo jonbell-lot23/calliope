@@ -19,7 +19,8 @@
 * { box-sizing:border-box; }
 html, body { height:100%; margin:0; }
 body { background:var(--paper); color:var(--ink); font:15px/1.5 var(--sans); overflow:hidden; }
-button { font:inherit; color:inherit; background:none; border:0; cursor:pointer; padding:0; }
+button { font:inherit; color:inherit; background:none; border:0; cursor:pointer; padding:0; touch-action:manipulation; -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none; }
+aside { touch-action:manipulation; } /* rapid taps on the controls must not zoom the page */
 body::before { /* paper grain */
   content:""; position:fixed; inset:0; pointer-events:none; z-index:1; opacity:.35; mix-blend-mode:multiply;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .08 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
