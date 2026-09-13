@@ -55,6 +55,11 @@ body.is-apart #line { border-color:rgba(224,98,58,.35); }
 
 #empty { position:fixed; inset:0 var(--sidebar) 0 0; display:grid; place-items:center; color:#a89c86; font:italic 300 26px/1.4 var(--serif); text-align:center; padding:40px; }
 #empty span { display:block; font:13px var(--sans); letter-spacing:.14em; text-transform:uppercase; margin-top:18px; color:#b8ad98; }
+#loading { position:fixed; inset:0 var(--sidebar) 0 0; display:none; place-items:center; color:#a89c86; font:italic 300 26px/1.4 var(--serif); text-align:center; padding:40px; z-index:5; background:var(--paper); }
+#loading.on { display:grid; }
+#loading ol { list-style:none; padding:0; margin:18px 0 0; font:13px/1.9 var(--sans); letter-spacing:.14em; text-transform:uppercase; color:#b8ad98; }
+#loading li { opacity:.45; } #loading li:last-child { opacity:1; }
+@media (max-width:820px) { #loading { inset:0; font-size:22px; } }
 
 /* ============ the sidebar ============ */
 aside {
@@ -220,6 +225,7 @@ dialog .row .ghost { color:var(--cream-dim); }
 <body>
 
 <div id="empty"><div>Nothing on the desk yet.<span>drop a PDF and its audio here, or use ☰</span></div></div>
+<div id="loading"><div><div id="loadWhat">Loading…</div><ol id="loadSteps"></ol></div></div>
 <main id="book"><div class="pages" id="pages"></div><div class="flow" id="flow"></div></main>
 <div id="line"></div>
 <div class="banner" id="banner">Audio is playing. Click the word the narrator is on right now. <button id="cancelMark">cancel</button></div>
@@ -297,6 +303,7 @@ const S = {
   you:0,         // word under the reading line (from scroll)
   follow:true,   // the book scrolls with the narrator while playing
   speed:1, marking:false, wantPlay:false, loaded:false,
+  far:0,         // the furthest you've ever been in this book (seconds)
 };
 window.__S = S; // for debugging in the console
 
@@ -314,8 +321,15 @@ const idb = {
 };
 
 // ------------------------------------------------------------------ loading
+function stage(msg, title) { // the loader: what is happening right now
+  const L = $('loading'); L.classList.add('on');
+  if (title) $('loadWhat').textContent = title;
+  if (msg) { const li = document.createElement('li'); li.textContent = msg; $('loadSteps').appendChild(li); }
+}
+function stageDone() { $('loading').classList.remove('on'); $('loadSteps').innerHTML = ''; $('loadWhat').textContent = 'Loading…'; }
 async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}) {
   if (!pdfFile) return toast('Pick a PDF');
+  stage(null, `Loading ${served?.title || pdfFile.name.replace(/\.pdf$/i, '')}…`);
   pause();
   S.served = served; S.loaded = false;
   S.key = 'rl:' + pdfFile.name + ':' + pdfFile.size;
@@ -335,13 +349,13 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}
   else if (files.every(f => f.name)) files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   S.audioFiles = files; S.cur = -1; audio.removeAttribute('src');
   const isUrl = f => typeof f === 'string';
-  S.durs = await Promise.all(files.map(f => {
-    const t = S.transcript?.files?.find(x => x.name === f.name);
-    if (t?.duration && files.length > 1) return t.duration;
-    return new Promise(res => { const a = new Audio(); const u = isUrl(f) ? f : URL.createObjectURL(f); a.preload = 'metadata'; a.onloadedmetadata = () => { res(a.duration); if (!isUrl(f)) URL.revokeObjectURL(u); }; a.onerror = () => res(0); a.src = u; });
-  }));
-  S.offsets = []; let acc = 0; for (const d of S.durs) { S.offsets.push(acc); acc += d; } S.dur = acc;
+  const tf = S.transcript?.files || [];
+  const probe = f => new Promise(res => { const a = new Audio(); const u = isUrl(f) ? f : URL.createObjectURL(f); const done = d => { res(d); if (!isUrl(f)) URL.revokeObjectURL(u); }; a.preload = 'metadata'; a.onloadedmetadata = () => done(a.duration); a.onerror = () => done(0); setTimeout(() => done(0), 15000); a.src = u; });
+  if (files.length === 1 && tf.length && tf.every(x => x.duration)) S.durs = [tf.reduce((a, x) => a + x.duration, 0)]; // one hosted file = the transcript's parts joined
+  else S.durs = await Promise.all(files.map(f => { const t = tf.find(x => x.name === f.name); return t?.duration ? t.duration : probe(f); }));
+  reoffset();
 
+  stage('Reading the pages…');
   await loadPdf(pdfFile);
   buildSentences();
   buildFlow(); setFlowMode();
@@ -354,6 +368,8 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}
   rebuildAnchors();
   S.narr = Math.min(saved.narr || 0, S.words.length - 1);
   S.you = S.narr; S.follow = true;
+  S.far = saved.far || 0;
+  stage(saved.narr ? `Finding your last page (${S.words[S.narr].p})…` : 'Starting from the first page…');
   if (served) localStorage.setItem('rl:last', served.title); else localStorage.removeItem('rl:last');
   await idb.set('last', served ? { served } : { pdf: pdfFile, audio: files, words: wordsFile || null });
   S.loaded = true;
@@ -364,6 +380,11 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}
     t = Math.min(Math.max(0, opts.t), S.dur - 1);
     if (Math.abs(t - was.t) > 30 && was.t > 2) { remember(); showNotice(`This link took you to p. ${S.words[wordForTime(t)].p} · ${fmt(t)}. You were on p. ${S.words[was.i].p} · ${fmt(was.t)}.`, was); }
     S.narr = wordForTime(t); seekGlobal(t, { silent: true });
+  }
+  stageDone();
+  if (!$('notice').classList.contains('on') && S.far - t > 60) { // you've been further than this before
+    const fi = wordForTime(S.far);
+    showNotice(`Your furthest point is p. ${S.words[fi].p} · ${fmt(S.far)}. You're on p. ${S.words[S.narr].p} · ${fmt(t)}.`, { t: S.far, i: fi }, 'Go to furthest');
   }
   lastSent = -1; paintNarrator(S.narr, t, true);
   if (opts.t == null && saved.you != null && Math.abs(saved.you - S.narr) > 40) S.you = Math.min(saved.you, S.words.length - 1); // you read on past the narrator
@@ -400,7 +421,7 @@ async function loadPdf(file) {
     el.className = 'page'; el.style.aspectRatio = `${vp.width} / ${vp.height}`; el.dataset.p = p;
     el.innerHTML = `<div class="num">${p}</div>`;
     P.el = el; $('pages').appendChild(el); io.observe(el);
-    if (p % 25 === 0) $('syncPill').textContent = `reading pdf ${p}/${n}`;
+    if (p % 25 === 0) { $('syncPill').textContent = `reading pdf ${p}/${n}`; const li = $('loadSteps').lastElementChild; if (li) li.textContent = `Reading the pages… ${p}/${n}`; }
   }
 }
 function buildSentences() {
@@ -497,12 +518,17 @@ function wordForTime(t) {
 }
 
 // ------------------------------------------------------------------ audio
-let pendingSeek = null;
-function globalTime() { return S.cur < 0 ? 0 : S.offsets[S.cur] + (pendingSeek ?? audio.currentTime); }
-function loadFile(i) { if (i === S.cur || i < 0 || i >= S.audioFiles.length) return; if (audio.src?.startsWith('blob:')) URL.revokeObjectURL(audio.src); S.cur = i; pendingSeek = null; const f = S.audioFiles[i]; audio.src = typeof f === 'string' ? f : URL.createObjectURL(f); audio.playbackRate = S.speed; }
-// iOS Safari drops a currentTime set before the file's metadata is in (and never says so); hold it until then
-function setTime(local) { if (audio.readyState >= 1) { pendingSeek = null; audio.currentTime = local; } else pendingSeek = local; }
-audio.addEventListener('loadedmetadata', () => { if (pendingSeek != null) { const t = pendingSeek; pendingSeek = null; audio.currentTime = t; } });
+function reoffset() { S.offsets = []; let acc = 0; for (const d of S.durs) { S.offsets.push(acc); acc += d; } S.dur = acc; }
+let wantLocal = null; // where we asked the current file to be, until it's confirmed there
+function globalTime() { return S.cur < 0 ? 0 : S.offsets[S.cur] + (wantLocal ?? audio.currentTime); }
+function loadFile(i) { if (i === S.cur || i < 0 || i >= S.audioFiles.length) return; if (audio.src?.startsWith('blob:')) URL.revokeObjectURL(audio.src); S.cur = i; wantLocal = null; const f = S.audioFiles[i]; audio.src = typeof f === 'string' ? f : URL.createObjectURL(f); audio.playbackRate = S.speed; }
+// iOS Safari drops a currentTime set before metadata is in, and sometimes again on the first play; keep asking until it lands
+function setTime(local) { wantLocal = local; if (audio.readyState >= 1) audio.currentTime = local; }
+function settleSeek() { if (wantLocal == null) return; if (Math.abs(audio.currentTime - wantLocal) < 1.5) wantLocal = null; else if (audio.readyState >= 1) audio.currentTime = wantLocal; }
+for (const ev of ['loadedmetadata', 'canplay', 'playing', 'seeked', 'timeupdate']) audio.addEventListener(ev, settleSeek);
+audio.addEventListener('loadedmetadata', () => { // a real duration beats a guessed one
+  const d = audio.duration; if (S.cur >= 0 && isFinite(d) && d > 0 && Math.abs(d - S.durs[S.cur]) > 1) { S.durs[S.cur] = d; reoffset(); }
+});
 function seekGlobal(t, opts = {}) {
   if (!S.audioFiles.length) return;
   t = Math.min(Math.max(0, t), Math.max(0, S.dur - 0.5));
@@ -653,7 +679,7 @@ function parseTime(v) { // "4500", "1:15:00", "1h15m", "75m", "1h15m30s"
   return null;
 }
 let noticeBack = null;
-function showNotice(msg, was) { noticeBack = was; $('noticeMsg').textContent = msg; $('notice').classList.add('on'); document.querySelector('.now').classList.add('has-notice'); }
+function showNotice(msg, was, label = 'Take me back') { noticeBack = was; $('noticeMsg').textContent = msg; $('noticeBack').textContent = label; $('notice').classList.add('on'); document.querySelector('.now').classList.add('has-notice'); }
 function hideNotice() { noticeBack = null; $('notice').classList.remove('on'); document.querySelector('.now').classList.remove('has-notice'); }
 $('noticeBack').onclick = () => { if (!noticeBack) return; const w = noticeBack; hideNotice(); S.follow = true; seekGlobal(w.t); scrollToWord(S.narr); updateApart(); };
 $('noticeOk').onclick = hideNotice;
@@ -737,7 +763,7 @@ function startMark() { if (!S.audioFiles.length) return toast('No audio in this 
 function endMark() { S.marking = false; document.body.classList.remove('marking'); $('banner').classList.remove('on'); }
 
 // ------------------------------------------------------------------ wiring
-function save() { if (S.key && S.loaded) localStorage.setItem(S.key, JSON.stringify({ narr: S.narr, you: S.you, time: globalTime(), manual: S.manual, speed: S.speed, recent: S.recent })); }
+function save() { if (!S.key || !S.loaded) return; const time = globalTime(); S.far = Math.max(S.far || 0, time); localStorage.setItem(S.key, JSON.stringify({ narr: S.narr, you: S.you, time, manual: S.manual, speed: S.speed, recent: S.recent, far: S.far })); }
 setInterval(() => { if (S.loaded && !audio.paused) save(); }, 5000);
 addEventListener('beforeunload', save);
 addEventListener('pagehide', save);
@@ -791,6 +817,7 @@ function applyTranscript(json) { S.transcript = json; buildAutoAnchors(); rebuil
 async function openServed(b, opts = {}) {
   clearInterval(pollT); hideNotice();
   $('syncPill').className = 'pill'; $('syncPill').textContent = 'fetching…'; $('title').textContent = b.title; $('by').textContent = b.author || '';
+  stage('Fetching the book…', `Loading ${b.title}…`);
   try {
     const pdf = await fetchFile(b.pdf);
     const aud = await Promise.all((b.audio || []).map(u => /^https?:/.test(u) ? u : fetchFile(u)));
@@ -799,7 +826,7 @@ async function openServed(b, opts = {}) {
     if (!words && b.words) pollT = setInterval(async () => { // transcript not there yet: keep checking
       try { const r = await fetch(b.words, { cache: 'no-store' }); if (!r.ok) return; applyTranscript(await r.json()); clearInterval(pollT); toast('Transcript arrived. Sync is now exact.'); } catch {}
     }, 30000);
-  } catch (e) { toast('Could not load ' + e.message); $('syncPill').textContent = 'no book'; $('dlg').showModal(); }
+  } catch (e) { stageDone(); toast('Could not load ' + e.message); $('syncPill').textContent = 'no book'; $('dlg').showModal(); }
 }
 async function loadShelf() {
   try {
