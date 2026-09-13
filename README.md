@@ -75,7 +75,7 @@ make it exact:
 
 ## Hosted
 
-Live at **https://calliope.vercel.app** (source: https://github.com/jonbell-lot23/calliope).
+Live at **https://calliope-reader.vercel.app** (source: https://github.com/jonbell-lot23/calliope).
 The app is a static site (one file). Hosted copies carry only the sample book:
 drag your PDF and audio onto the page and they are cached in your browser only.
 
