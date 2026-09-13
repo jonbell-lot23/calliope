@@ -289,6 +289,7 @@ dialog .row .ghost { color:var(--cream-dim); }
   <div class="field"><label>PDF</label><input type="file" id="fPdf" accept="application/pdf"></div>
   <div class="field"><label>Audio<small>one or many files</small></label><input type="file" id="fAudio" accept="audio/*" multiple></div>
   <div class="field"><label>Transcript<small>optional</small></label><input type="file" id="fWords" accept=".json"></div>
+  <p class="hint" id="ver"></p>
   <p class="hint">For exact sync run <code>./transcribe.sh book.words.json audio/*.mp3</code> and pick the result as Transcript. Without it the sync is approximate; fix it with 📍.</p>
   <div class="row"><button class="ghost" id="dlgCancel">Cancel</button><button class="pri" id="dlgOpen">Open files</button></div>
 </dialog>
@@ -384,6 +385,10 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}
   await idb.set('last', served ? { served } : { pdf: pdfFile, audio: files, words: wordsFile || null });
   S.loaded = true;
   let t = saved.time ?? timeForWord(S.narr);
+  // saves made while the audio couldn't load wrote time 0 (and narr 0) but kept the page you were reading in `you`; recover from that
+  if (t < 2 && S.narr > 40) t = timeForWord(S.narr);
+  if (t < 2 && saved.you > 40) { S.narr = S.you = Math.min(saved.you, S.words.length - 1); t = timeForWord(S.narr); }
+  S.far = Math.max(S.far, t, saved.you > 40 ? timeForWord(Math.min(saved.you, S.words.length - 1)) : 0);
   seekGlobal(t, { silent: true });
   if (opts.t != null && S.dur) { // a shared link: go there, but keep the way back
     const was = { t, i: S.narr };
@@ -773,12 +778,15 @@ function startMark() { if (!S.audioFiles.length) return toast('No audio in this 
 function endMark() { S.marking = false; document.body.classList.remove('marking'); $('banner').classList.remove('on'); }
 
 // ------------------------------------------------------------------ wiring
-function save() { if (!S.key || !S.loaded) return; const time = globalTime(); S.far = Math.max(S.far || 0, time); localStorage.setItem(S.key, JSON.stringify({ narr: S.narr, you: S.you, time, manual: S.manual, speed: S.speed, recent: S.recent, far: S.far })); }
+function save() { if (!S.key || !S.loaded) return; let time = globalTime(); if (time < 2 && S.narr > 40) time = timeForWord(S.narr); /* never write 0 over a real position */ S.far = Math.max(S.far || 0, time); localStorage.setItem(S.key, JSON.stringify({ narr: S.narr, you: S.you, time, manual: S.manual, speed: S.speed, recent: S.recent, far: S.far })); }
 setInterval(() => { if (S.loaded && !audio.paused) save(); }, 5000);
 addEventListener('beforeunload', save);
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
+const VERSION = '2026-09-13.7';
+if (new URLSearchParams(location.search).has('debug')) setInterval(() => { $('tPage').textContent = `v${VERSION} rs${audio.readyState} ct${audio.currentTime | 0} want${wantLocal == null ? '·' : wantLocal | 0} f${S.cur} dur${S.dur | 0} far${S.far | 0}`; }, 1000);
+$('ver').textContent = 'Calliope build ' + VERSION;
 const SPEEDS = [1, 1.25, 1.5, 2];
 $('speeds').innerHTML = SPEEDS.map(s => `<button data-s="${s}">${s}×</button>`).join('');
 function setSpeed(s) { S.speed = s; audio.playbackRate = audio.defaultPlaybackRate = s; $('speeds').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.s === s)); }
