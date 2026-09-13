@@ -193,8 +193,8 @@ body.playing .ctl .play svg.tri { display:none; }
   aside.searching .now .txt { display:none; }
   /* tucked: swipe down once more and the sheet is just a handle, a thin progress line and a small play button */
   body.tucked #book { padding-bottom:110px; }
-  aside.tucked { flex-direction:row; flex-wrap:wrap; align-items:center; gap:0 12px; padding-top:6px; padding-bottom:calc(8px + env(safe-area-inset-bottom)); }
-  aside.tucked .handle { flex:0 0 100%; margin-bottom:4px; }
+  aside.tucked { display:grid; grid-template-columns:1fr auto; align-items:center; column-gap:14px; padding-top:6px; padding-bottom:calc(8px + env(safe-area-inset-bottom)); }
+  aside.tucked .handle { grid-column:1 / -1; margin-bottom:4px; }
   aside.tucked .now, aside.tucked .apart, aside.tucked .times, aside.tucked .ctl .skip, aside.tucked .foot, aside.tucked .head, aside.tucked .search { display:none; }
   aside.tucked .scrub { order:1; flex:1; margin:0; }
   aside.tucked .bar { height:20px; }
