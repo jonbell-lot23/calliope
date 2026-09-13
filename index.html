@@ -367,6 +367,8 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}
   if (opts.t == null && saved.you != null && Math.abs(saved.you - S.narr) > 40) S.you = Math.min(saved.you, S.words.length - 1); // you read on past the narrator
   book.classList.add('instant'); scrollToWord(S.you); requestAnimationFrame(() => book.classList.remove('instant'));
   updateApart();
+  const anchor = S.you, opened = performance.now(); // web fonts arriving after the first paint shift the text; re-anchor once they're in
+  document.fonts?.ready.then(() => { if (S.loaded && S.you === anchor && lastHand < opened) { book.classList.add('instant'); scrollToWord(anchor); requestAnimationFrame(() => book.classList.remove('instant')); } });
   $('nowWhere').textContent = `${S.pages.length} pages · ${fmt(S.dur)}`;
 }
 
