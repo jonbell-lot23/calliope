@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Calliope</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..700,50;1,9..144,300..700,50&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..700,50;1,9..144,300..700,50&family=Instrument+Sans:wght@400;500;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap" rel="stylesheet">
 <style>
 :root {
   --paper:#ece6d8; --ink:#1d1a16;
@@ -38,6 +38,16 @@ body::before { /* paper grain */
 .page .mark.on { opacity:1; }
 body.marking .page .w { cursor:crosshair; }
 body.marking .page .w:hover { background:var(--ember); opacity:.5; }
+/* reflowed text: what phones read instead of the PDF page */
+.flow { display:none; position:relative; max-width:640px; margin:0 auto; padding:0 22px; font:17px/1.62 "Literata", "Iowan Old Style", Georgia, serif; font-variation-settings:"opsz" 14; color:#2a2620; -webkit-font-smoothing:antialiased; }
+.flow p { margin:0 0 1.05em; text-align:left; hyphens:auto; -webkit-hyphens:auto; }
+.flow p .s { cursor:pointer; }
+.flow .pn { display:block; font:11px var(--sans); letter-spacing:.14em; color:#b3a891; margin:1.6em 0 1em; text-transform:uppercase; }
+.flow .pn::after { content:""; display:inline-block; width:36px; height:1px; background:#d8d0be; vertical-align:middle; margin-left:10px; }
+.flow .mark { position:absolute; left:8px; width:3px; border-radius:2px; background:#c9c2b4; opacity:0; transition:top .35s ease, height .35s ease, opacity .3s; }
+.flow .mark.on { opacity:1; }
+body.is-flow .pages { display:none; }
+body.is-flow .flow { display:block; }
 /* the reading line: where "your place" is measured; visible only when you and the narrator are apart */
 #line { position:fixed; left:0; right:var(--sidebar); top:34%; height:0; pointer-events:none; z-index:2; border-top:1px dashed rgba(224,98,58,0); transition:border-color .3s; }
 body.is-apart #line { border-color:rgba(224,98,58,.35); }
@@ -136,7 +146,7 @@ body.playing .ctl .play svg.tri { display:none; }
 /* ============ mobile: the sidebar becomes a bottom sheet ============ */
 @media (max-width: 760px) {
   :root { --sidebar:0px; }
-  #book { padding:20px 0 260px; }
+  #book { padding:22px 0 240px; }
   .pages { width:calc(100% - 16px); }
   .page { margin-bottom:14px; }
   #line { top:28%; }
@@ -151,20 +161,25 @@ body.playing .ctl .play svg.tri { display:none; }
   /* collapsed: play row, scrubber, one glance of the narrator's sentence, the apart card */
   aside .head, aside .foot, aside .search { display:none; }
   aside .now { margin:0; order:3; flex:none; }
+  aside .now:not(.has-card) { display:none; }
+  aside.open .now { display:flex; }
   aside .now .lbl { display:none; }
-  aside .now .txt { font-size:16px; margin-top:8px; max-height:4.6em; -webkit-mask-image:linear-gradient(#000 60%, transparent); mask-image:linear-gradient(#000 60%, transparent); }
+  aside .now .txt { display:none; }
   aside .scrub { order:1; margin-top:0; }
   aside .ctl { order:2; margin-top:4px; gap:14px; }
   aside .ctl .play { width:54px; height:54px; }
   aside .ctl .play svg { width:20px; height:20px; }
   aside .ctl .skip { width:40px; height:40px; font-size:11px; }
   aside .apart { margin-top:10px; }
+  aside .ctl { margin-bottom:4px; }
   /* expanded: everything, in a sensible order */
   aside.open .head { display:flex; order:0; padding-right:26px; }
   aside.open .search { display:flex; order:1; margin-top:14px; }
   aside.open .now { order:2; flex:1; min-height:120px; margin-top:12px; }
   aside.open .now .lbl { display:flex; }
-  aside.open .now .txt { font-size:18px; max-height:none; }
+  aside.open .now .txt { display:none; }
+  aside.open .now .lbl { display:none; }
+  aside.open.searching .now .lbl { display:flex; }
   aside.open .scrub { order:3; margin-top:14px; }
   aside.open .ctl { order:4; }
   aside.open .foot { display:flex; order:5; margin-top:12px; }
@@ -203,7 +218,7 @@ dialog .row .ghost { color:var(--cream-dim); }
 <body>
 
 <div id="empty"><div>Nothing on the desk yet.<span>drop a PDF and its audio here, or use ☰</span></div></div>
-<main id="book"><div class="pages" id="pages"></div></main>
+<main id="book"><div class="pages" id="pages"></div><div class="flow" id="flow"></div></main>
 <div id="line"></div>
 <div class="banner" id="banner">Audio is playing. Click the word the narrator is on right now. <button id="cancelMark">cancel</button></div>
 
@@ -324,6 +339,7 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null) {
 
   await loadPdf(pdfFile);
   buildSentences();
+  buildFlow(); setFlowMode();
   buildAutoAnchors();
 
   const saved = JSON.parse(localStorage.getItem(S.key) || '{}');
@@ -379,6 +395,40 @@ function buildSentences() {
   }
 }
 const sentenceOf = i => Math.max(0, lowerBound(S.sentences, i, s => s.b));
+
+// the same book as flowing text: one span per sentence, paragraphs guessed from indents, running headers dropped
+const mq = matchMedia('(max-width: 760px)');
+const inFlow = () => mq.matches;
+function buildFlow() {
+  const F = $('flow'); F.innerHTML = '';
+  const W = S.words, pos = []; // pos[gi] = page word geometry
+  for (const P of S.pages) for (const w of P.words) pos[w.gi] = w;
+  const left = S.pages.map(P => P.words.length ? Math.min(...P.words.map(x => x.x)) : 0);
+  const header = new Set(); // words on a page's first line when it looks like a running header
+  for (const P of S.pages) {
+    if (!P.words.length) continue;
+    const y0 = P.words[0].y, line = P.words.filter(x => Math.abs(x.y - y0) < 0.6);
+    if (line.length <= 8 && line.some(x => /\d/.test(W[x.gi].s)) && y0 < 14) line.forEach(x => header.add(x.gi));
+  }
+  const frag = document.createDocumentFragment(); let para = null, curPage = 0;
+  S.sentences.forEach((sn, k) => {
+    const a = sn.a; if (header.has(a) && header.has(sn.b)) return;
+    const w0 = pos[a], prev = pos[a-1];
+    const newLine = !prev || W[a-1].p !== W[a].p || w0.y > prev.y + 0.4;
+    const indented = w0 && w0.x > left[W[a].p - 1] + 1.2;
+    const newPara = !para || (newLine && indented) || (prev && w0.y > prev.y + 2.6) || (k === 0);
+    if (W[a].p !== curPage) { curPage = W[a].p; const pn = document.createElement('span'); pn.className = 'pn'; pn.textContent = 'p. ' + curPage; pn.dataset.p = curPage; frag.appendChild(pn); para = null; }
+    if (newPara || !para) { para = document.createElement('p'); frag.appendChild(para); }
+    const el = document.createElement('span'); el.className = 's'; el.dataset.s = k;
+    el.textContent = W.slice(a, sn.b + 1).filter(w => !header.has(a)).map(w => w.s).join(' ').replace(/(\w)- (\w)/g, '$1$2') + ' ';
+    para.appendChild(el);
+  });
+  F.appendChild(frag);
+  const m = document.createElement('div'); m.className = 'mark'; F.appendChild(m);
+}
+const sentEl = k => $('flow').querySelector(`.s[data-s="${k}"]`);
+function setFlowMode() { document.body.classList.toggle('is-flow', inFlow()); }
+mq.addEventListener('change', () => { setFlowMode(); if (S.loaded) { scrollToWord(S.narr); placeMark(S.sentences[sentenceOf(S.narr)]); } });
 
 // ------------------------------------------------------------------ alignment
 function buildAutoAnchors() {
@@ -476,6 +526,12 @@ function paintNarrator(w, t, changed) {
 
 // a gray bar in the left margin, spanning the lines of the sentence being read
 function placeMark(s) {
+  if (inFlow()) {
+    const el = sentEl(sentenceOf(s.a)), m = $('flow').querySelector('.mark'); if (!el || !m) return;
+    const r = el.getClientRects(); if (!r.length) return; const fr = $('flow').getBoundingClientRect();
+    m.style.top = (r[0].top - fr.top) + 'px'; m.style.height = (r[r.length-1].bottom - r[0].top) + 'px'; m.classList.add('on');
+    return;
+  }
   document.querySelectorAll('.page .mark.on').forEach(m => m.classList.remove('on'));
   const P = S.pages[S.words[s.a].p - 1]; if (!P) return;
   const ws = P.words.filter(x => x.gi >= s.a && x.gi <= s.b); if (!ws.length) return;
@@ -503,7 +559,9 @@ async function mountPage(P) {
 function unmountPage(P) { if (!P.mounted) return; P.mounted = false; P.el.querySelectorAll('canvas,.w,.mark').forEach(e => e.remove()); }
 const wordEl = i => S.pages[S.words[i].p - 1]?.el.querySelector(`.w[data-i="${i}"]`);
 
-function wordTop(i) { const P = S.pages[S.words[i].p - 1]; const w = P.words.find(x => x.gi === i); return P.el.offsetTop + (w ? w.y / 100 * P.el.offsetHeight : 0); }
+function wordTop(i) {
+  if (inFlow()) { const el = sentEl(sentenceOf(i)); return el ? el.getBoundingClientRect().top - $('flow').getBoundingClientRect().top + $('flow').offsetTop : 0; }
+  const P = S.pages[S.words[i].p - 1]; const w = P.words.find(x => x.gi === i); return P.el.offsetTop + (w ? w.y / 100 * P.el.offsetHeight : 0); }
 let programmatic = 0;
 function scrollToWord(i) { programmatic = performance.now(); book.scrollTop = wordTop(i) - book.clientHeight * 0.34; }
 function keepInView(i) { const y = wordTop(i) - book.scrollTop, h = book.clientHeight; if (y < h * 0.12 || y > h * 0.62) scrollToWord(i); }
@@ -514,6 +572,12 @@ book.addEventListener('scroll', () => {
   if (!S.loaded) return;
   const byUser = performance.now() - programmatic > 900;
   clearTimeout(scrollT); scrollT = setTimeout(() => {
+    if (inFlow()) {
+      const r = book.getBoundingClientRect(); const el = document.elementFromPoint(r.left + r.width / 2, r.top + book.clientHeight * 0.28)?.closest('.s');
+      if (el) S.you = S.sentences[+el.dataset.s].a;
+      if (byUser && S.follow && !audio.paused && Math.abs(S.you - S.narr) > 40) S.follow = false;
+      updateApart(); return;
+    }
     const line = book.scrollTop + book.clientHeight * 0.34;
     for (const P of S.pages) {
       const top = P.el.offsetTop, bot = top + P.el.offsetHeight;
@@ -539,7 +603,7 @@ book.addEventListener('touchmove', handScroll, { passive: true });
 function updateApart() {
   const apart = Math.abs(S.you - S.narr) > 40;
   const on = S.loaded && apart && (audio.paused || !S.follow);
-  $('apart').classList.toggle('on', on);
+  $('apart').classList.toggle('on', on); document.querySelector('.now').classList.toggle('has-card', on);
   document.body.classList.toggle('is-apart', on);
   $('you').classList.toggle('on', on); if (on) $('you').style.left = (timeForWord(S.you) / S.dur * 100) + '%';
   if (on) {
@@ -616,6 +680,13 @@ $('qClear').onclick = () => { $('q').value = ''; runSearch(); };
 $('results').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.r != null) { const r = S.recent[+b.dataset.r]; $('q').blur(); goTo(r.i, r.t); } else goHit(+b.dataset.k); });
 $('q').addEventListener('focus', runSearch);
 $('q').addEventListener('blur', () => { if (!$('q').value.trim()) setTimeout(() => { if (!$('q').value.trim() && document.activeElement !== $('q')) { aside.classList.remove('searching'); $('nowLbl').textContent = 'Narrator'; } }, 150); });
+
+$('flow').addEventListener('click', e => {
+  const el = e.target.closest('.s'); if (!el) return;
+  const i = S.sentences[+el.dataset.s].a;
+  if (S.marking) { S.manual.push([i, globalTime()]); rebuildAnchors(); save(); endMark(); toast('Marked. Sync adjusted around here.'); S.follow = true; return; }
+  remember(); S.follow = true; S.you = i; seekGlobal(timeForWord(i)); updateApart();
+});
 
 // ------------------------------------------------------------------ marking (fix sync)
 function startMark() { if (!S.audioFiles.length) return toast('No audio in this book'); S.marking = true; S.follow = false; document.body.classList.add('marking'); $('banner').classList.add('on'); play(); }
