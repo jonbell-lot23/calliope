@@ -329,6 +329,7 @@ const S = {
   follow:true,   // the book scrolls with the narrator while playing
   speed:1, marking:false, wantPlay:false, loaded:false,
   far:0,         // the furthest you've ever been in this book (seconds)
+  farSeen:0,     // the furthest point you've already declined to jump to
 };
 window.__S = S; // for debugging in the console
 const DEBUG = new URLSearchParams(location.search).has('debug');
@@ -398,7 +399,6 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}
   S.narr = Math.min(saved.narr || 0, S.words.length - 1);
   S.you = S.narr; S.follow = true;
   S.far = saved.far || 0;
-  stage(saved.narr ? `Finding your last page (${S.words[S.narr].p})…` : 'Starting from the first page…');
   if (served) localStorage.setItem('rl:last', served.title); else localStorage.removeItem('rl:last');
   await idb.set('last', served ? { served } : { pdf: pdfFile, audio: files, words: wordsFile || null });
   S.loaded = true;
@@ -407,6 +407,7 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}
   if (t < 2 && S.narr > 40) t = timeForWord(S.narr);
   if (t < 2 && saved.you > 40) { S.narr = S.you = Math.min(saved.you, S.words.length - 1); t = timeForWord(S.narr); }
   S.far = Math.max(S.far, t, saved.you > 40 ? timeForWord(Math.min(saved.you, S.words.length - 1)) : 0);
+  stage(t > 2 ? `Finding your last page (${S.words[wordForTime(t)].p})…` : 'Starting from the first page…');
   seekGlobal(t, { silent: true });
   if (opts.t != null && S.dur) { // a shared link: go there, but keep the way back
     const was = { t, i: S.narr };
@@ -415,7 +416,8 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}
     S.narr = wordForTime(t); seekGlobal(t, { silent: true });
   }
   stageDone();
-  if (!$('notice').classList.contains('on') && S.far - t > 60) { // you've been further than this before
+  S.farSeen = saved.farSeen || 0;
+  if (!$('notice').classList.contains('on') && S.far - t > 60 && S.far > S.farSeen + 30) { // you've been further than this before (and haven't said "stay here" for that point)
     const fi = wordForTime(S.far);
     showNotice(`Your furthest point is p. ${S.words[fi].p} · ${fmt(S.far)}. You're on p. ${S.words[S.narr].p} · ${fmt(t)}.`, { t: S.far, i: fi }, 'Go to furthest');
   }
@@ -426,6 +428,7 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}
   const anchor = S.you, opened = performance.now(); // web fonts arriving after the first paint shift the text; re-anchor once they're in
   document.fonts?.ready.then(() => { if (S.loaded && S.you === anchor && lastHand < opened) { book.classList.add('instant'); scrollToWord(anchor); requestAnimationFrame(() => book.classList.remove('instant')); } });
   $('nowWhere').textContent = `${S.pages.length} pages · ${fmt(S.dur)}`;
+  mediaMeta(); mediaPosition();
 }
 
 async function loadPdf(file) {
@@ -490,7 +493,7 @@ function buildFlow() {
     if (W[a].p !== curPage) { curPage = W[a].p; const pn = document.createElement('span'); pn.className = 'pn'; pn.textContent = 'p. ' + curPage; pn.dataset.p = curPage; frag.appendChild(pn); para = null; }
     if (newPara || !para) { para = document.createElement('p'); frag.appendChild(para); }
     const el = document.createElement('span'); el.className = 's'; el.dataset.s = k;
-    el.textContent = W.slice(a, sn.b + 1).filter(w => !header.has(a)).map(w => w.s).join(' ').replace(/\u00AD\s*/g, '').replace(/(\w)- (\w)/g, '$1$2') + ' ';
+    el.textContent = W.slice(a, sn.b + 1).filter((w, j) => !header.has(a + j)).map(w => w.s).join(' ').replace(/\u00AD\s*/g, '').replace(/(\w)- (\w)/g, '$1$2') + ' ';
     para.appendChild(el);
   });
   F.appendChild(frag);
@@ -580,8 +583,24 @@ function seekGlobal(t, opts = {}) {
 }
 function play() { if (!S.audioFiles.length) return toast('No audio in this book'); if (S.cur < 0) seekGlobal(timeForWord(S.narr)); S.wantPlay = true; audio.play().catch(() => {}); }
 function pause() { S.wantPlay = false; audio.pause(); }
-audio.addEventListener('ended', () => { if (S.cur + 1 < S.audioFiles.length) { loadFile(S.cur + 1); audio.currentTime = 0; audio.play(); } });
-audio.addEventListener('play', () => { document.body.classList.add('playing'); updateApart(); });
+audio.addEventListener('ended', () => { if (S.cur + 1 < S.audioFiles.length) { loadFile(S.cur + 1); setTime(0); audio.play().catch(() => {}); } });
+audio.addEventListener('play', () => { document.body.classList.add('playing'); updateApart(); mediaPosition(); });
+// lock screen & earbuds: what's playing, and the usual controls
+function mediaMeta() {
+  if (!('mediaSession' in navigator)) return;
+  const b = S.served || {}; const artwork = b.cover ? [{ src: new URL(b.cover, location.href).href, sizes: '512x512', type: 'image/jpeg' }] : [];
+  try { navigator.mediaSession.metadata = new MediaMetadata({ title: b.title || $('title').textContent, artist: b.author || '', album: 'Calliope', artwork }); } catch {}
+  const on = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f); } catch {} };
+  on('play', () => play()); on('pause', () => pause());
+  on('seekbackward', d => seekGlobal(globalTime() - (d?.seekOffset || 15))); on('seekforward', d => seekGlobal(globalTime() + (d?.seekOffset || 15)));
+  on('seekto', d => { if (d?.seekTime != null) seekGlobal(d.seekTime); });
+  on('previoustrack', () => seekGlobal(globalTime() - 15)); on('nexttrack', () => seekGlobal(globalTime() + 15));
+}
+function mediaPosition() {
+  if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState || !S.dur) return;
+  try { navigator.mediaSession.setPositionState({ duration: S.dur, playbackRate: audio.playbackRate || S.speed, position: Math.min(S.dur, Math.max(0, globalTime())) }); } catch {}
+}
+audio.addEventListener('seeked', mediaPosition); audio.addEventListener('ratechange', mediaPosition);
 audio.addEventListener('pause', () => { document.body.classList.remove('playing'); updateApart(); save(); });
 audio.addEventListener('timeupdate', () => {
   if (!S.loaded) return;
@@ -724,7 +743,7 @@ let noticeBack = null;
 function showNotice(msg, was, label = 'Take me back') { if (aside.classList.contains('tucked')) setTucked(false); noticeBack = was; $('noticeMsg').textContent = msg; $('noticeBack').textContent = label; $('notice').classList.add('on'); document.querySelector('.now').classList.add('has-notice'); }
 function hideNotice() { noticeBack = null; $('notice').classList.remove('on'); document.querySelector('.now').classList.remove('has-notice'); }
 $('noticeBack').onclick = () => { if (!noticeBack) return; const w = noticeBack; hideNotice(); S.follow = true; seekGlobal(w.t); scrollToWord(S.narr); updateApart(); };
-$('noticeOk').onclick = hideNotice;
+$('noticeOk').onclick = () => { if (noticeBack && Math.abs(noticeBack.t - S.far) < 1) { S.farSeen = S.far; save(); } hideNotice(); };
 function shareLink() {
   if (!S.loaded) return;
   const t = Math.floor(globalTime()), h = t / 3600 | 0, m = (t % 3600) / 60 | 0, sec = t % 60;
@@ -807,13 +826,13 @@ function startMark() { if (!S.audioFiles.length) return toast('No audio in this 
 function endMark() { S.marking = false; document.body.classList.remove('marking'); $('banner').classList.remove('on'); }
 
 // ------------------------------------------------------------------ wiring
-function save() { if (!S.key || !S.loaded) return; let time = globalTime(); if (time < 2 && S.narr > 40) time = timeForWord(S.narr); /* never write 0 over a real position */ S.far = Math.max(S.far || 0, time); localStorage.setItem(S.key, JSON.stringify({ narr: S.narr, you: S.you, time, manual: S.manual, speed: S.speed, recent: S.recent, far: S.far })); }
-setInterval(() => { if (S.loaded && !audio.paused) save(); }, 5000);
+function save() { if (!S.key || !S.loaded) return; let time = globalTime(); if (time < 2 && S.narr > 40) time = timeForWord(S.narr); /* never write 0 over a real position */ S.far = Math.max(S.far || 0, time); localStorage.setItem(S.key, JSON.stringify({ narr: S.narr, you: S.you, time, manual: S.manual, speed: S.speed, recent: S.recent, far: S.far, farSeen: S.farSeen || 0 })); }
+setInterval(() => { if (S.loaded && !audio.paused) { save(); mediaPosition(); } }, 5000);
 addEventListener('beforeunload', save);
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
-const VERSION = '2026-09-13.12';
+const VERSION = '2026-09-13.13';
 if (new URLSearchParams(location.search).has('debug')) setInterval(() => { $('tPage').textContent = `v${VERSION} rs${audio.readyState} ct${audio.currentTime | 0} want${wantLocal == null ? '·' : wantLocal | 0} f${S.cur} dur${S.dur | 0} far${S.far | 0}`; }, 1000);
 $('ver').textContent = 'Calliope build ' + VERSION;
 const SPEEDS = [1, 1.25, 1.5, 2];
