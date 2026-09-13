@@ -497,14 +497,18 @@ function wordForTime(t) {
 }
 
 // ------------------------------------------------------------------ audio
-function globalTime() { return S.cur < 0 ? 0 : S.offsets[S.cur] + audio.currentTime; }
-function loadFile(i) { if (i === S.cur || i < 0 || i >= S.audioFiles.length) return; if (audio.src?.startsWith('blob:')) URL.revokeObjectURL(audio.src); S.cur = i; const f = S.audioFiles[i]; audio.src = typeof f === 'string' ? f : URL.createObjectURL(f); audio.playbackRate = S.speed; }
+let pendingSeek = null;
+function globalTime() { return S.cur < 0 ? 0 : S.offsets[S.cur] + (pendingSeek ?? audio.currentTime); }
+function loadFile(i) { if (i === S.cur || i < 0 || i >= S.audioFiles.length) return; if (audio.src?.startsWith('blob:')) URL.revokeObjectURL(audio.src); S.cur = i; pendingSeek = null; const f = S.audioFiles[i]; audio.src = typeof f === 'string' ? f : URL.createObjectURL(f); audio.playbackRate = S.speed; }
+// iOS Safari drops a currentTime set before the file's metadata is in (and never says so); hold it until then
+function setTime(local) { if (audio.readyState >= 1) { pendingSeek = null; audio.currentTime = local; } else pendingSeek = local; }
+audio.addEventListener('loadedmetadata', () => { if (pendingSeek != null) { const t = pendingSeek; pendingSeek = null; audio.currentTime = t; } });
 function seekGlobal(t, opts = {}) {
   if (!S.audioFiles.length) return;
   t = Math.min(Math.max(0, t), Math.max(0, S.dur - 0.5));
   let i = 0; while (i + 1 < S.offsets.length && S.offsets[i+1] <= t) i++;
   const wasPlaying = !audio.paused;
-  loadFile(i); audio.currentTime = t - S.offsets[i];
+  loadFile(i); setTime(t - S.offsets[i]);
   if (wasPlaying || S.wantPlay) audio.play().catch(() => {});
   if (!opts.silent) { S.narr = wordForTime(t); paintNarrator(S.narr, t, true); }
 }
