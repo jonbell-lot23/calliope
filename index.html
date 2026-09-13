@@ -191,6 +191,20 @@ body.playing .ctl .play svg.tri { display:none; }
   aside.open .ctl { order:4; }
   aside.open .foot { display:flex; order:5; margin-top:12px; }
   aside.searching .now .txt { display:none; }
+  /* full: pull the book past its top (or swipe the open sheet up) and it's just the audio: cover, title, scrubber, controls */
+  aside.full { max-height:100dvh; height:100dvh; border-radius:0; justify-content:center; padding-top:calc(24px + env(safe-area-inset-top)); transition:none; }
+  aside.full .handle { position:absolute; top:calc(10px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); margin:0; }
+  aside.full .head { display:flex; order:0; flex-direction:column; align-items:center; text-align:center; padding:0; gap:18px; margin-bottom:26px; }
+  aside.full .head img, aside.full .head .ph { width:min(52vw, 220px); box-shadow:0 30px 60px -24px #000, 0 0 0 1px rgba(255,255,255,.06); }
+  aside.full .head h1 { font-size:26px; }
+  aside.full .head button.shelf { right:8px; top:calc(6px + env(safe-area-inset-top)); position:fixed; }
+  aside.full .search, aside.full .now:not(.has-notice), aside.full .now .txt, aside.full .now .lbl, aside.full .apart:not(.notice) { display:none; }
+  aside.full .now.has-notice { order:4; margin-top:18px; }
+  aside.full .scrub { order:1; margin-top:0; }
+  aside.full .ctl { order:2; margin-top:18px; gap:22px; }
+  aside.full .ctl .play { width:72px; height:72px; }
+  aside.full .ctl .play svg { width:26px; height:26px; }
+  aside.full .foot { display:flex; order:3; justify-content:center; margin-top:22px; }
   /* tucked: swipe down once more and the sheet is just a handle, a thin progress line and a small play button */
   body.tucked #book { padding-bottom:110px; }
   aside.tucked { display:grid; grid-template-columns:1fr auto; align-items:center; column-gap:14px; padding-top:6px; padding-bottom:calc(8px + env(safe-area-inset-bottom)); }
@@ -643,6 +657,7 @@ let scrollT = 0;
 book.addEventListener('scroll', () => {
   if (!S.loaded) return;
   const byUser = performance.now() - programmatic > 900;
+  if (byUser && book.scrollTop <= 0 && mq.matches && !aside.classList.contains('full')) setFull(true); // pulled the book past its top: just the audio
   clearTimeout(scrollT); scrollT = setTimeout(() => {
     if (inFlow()) {
       const r = book.getBoundingClientRect(); const el = document.elementFromPoint(r.left + r.width / 2, r.top + book.clientHeight * 0.28)?.closest('.s');
@@ -798,7 +813,7 @@ addEventListener('beforeunload', save);
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
-const VERSION = '2026-09-13.11';
+const VERSION = '2026-09-13.12';
 if (new URLSearchParams(location.search).has('debug')) setInterval(() => { $('tPage').textContent = `v${VERSION} rs${audio.readyState} ct${audio.currentTime | 0} want${wantLocal == null ? '·' : wantLocal | 0} f${S.cur} dur${S.dur | 0} far${S.far | 0}`; }, 1000);
 $('ver').textContent = 'Calliope build ' + VERSION;
 const SPEEDS = [1, 1.25, 1.5, 2];
@@ -819,9 +834,10 @@ $('goNarr').onclick = () => { S.follow = true; S.you = S.narr; scrollToWord(S.na
 $('btnMark').onclick = startMark; $('cancelMark').onclick = endMark;
 // the sheet has three heights on a phone: open, collapsed, tucked (handle + progress + play)
 function setTucked(on) { aside.classList.toggle('tucked', on); document.body.classList.toggle('tucked', on); if (on) aside.classList.remove('open'); try { localStorage.setItem('rl:tucked', on ? '1' : ''); } catch {} }
-function sheetUp() { if (aside.classList.contains('tucked')) setTucked(false); else aside.classList.add('open'); }
-function sheetDown() { if (aside.classList.contains('open')) aside.classList.remove('open'); else setTucked(true); }
-$('handle').onclick = () => { if (aside.classList.contains('tucked')) setTucked(false); else aside.classList.toggle('open'); };
+function setFull(on) { aside.classList.toggle('full', on); if (on) { setTucked(false); aside.classList.remove('open'); } }
+function sheetUp() { if (aside.classList.contains('tucked')) setTucked(false); else if (aside.classList.contains('open')) setFull(true); else aside.classList.add('open'); }
+function sheetDown() { if (aside.classList.contains('full')) setFull(false); else if (aside.classList.contains('open')) aside.classList.remove('open'); else setTucked(true); }
+$('handle').onclick = () => { if (aside.classList.contains('full')) setFull(false); else if (aside.classList.contains('tucked')) setTucked(false); else aside.classList.toggle('open'); };
 try { if (localStorage.getItem('rl:tucked')) setTucked(true); } catch {}
 let ty0 = null; aside.addEventListener('touchstart', e => { ty0 = e.touches[0].clientY; }, { passive: true });
 aside.addEventListener('touchend', e => { if (ty0 == null) return; const dy = e.changedTouches[0].clientY - ty0; ty0 = null; if (dy < -40) sheetUp(); else if (dy > 40 && !e.target.closest('.results')) sheetDown(); }, { passive: true });
