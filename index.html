@@ -542,8 +542,14 @@ let wantLocal = null; // where we asked the current file to be, until it's confi
 function globalTime() { return S.cur < 0 ? 0 : S.offsets[S.cur] + (wantLocal ?? audio.currentTime); }
 function loadFile(i) { if (i === S.cur || i < 0 || i >= S.audioFiles.length) return; if (audio.src?.startsWith('blob:')) URL.revokeObjectURL(audio.src); S.cur = i; wantLocal = null; const f = S.audioFiles[i]; audio.src = typeof f === 'string' ? f : URL.createObjectURL(f); audio.playbackRate = S.speed; }
 // iOS Safari drops a currentTime set before metadata is in, and sometimes again on the first play; keep asking until it lands
-function setTime(local) { wantLocal = local; if (audio.readyState >= 1) { try { audio.currentTime = local; } catch (e) { dlog('currentTime threw', String(e)); } } dlog('setTime', local | 0, 'now ct' + (audio.currentTime | 0)); }
-function settleSeek() { if (wantLocal == null) return; if (Math.abs(audio.currentTime - wantLocal) < 1.5) wantLocal = null; else if (audio.readyState >= 1) audio.currentTime = wantLocal; }
+let seekTries = 0;
+function setTime(local) { wantLocal = local; seekTries = 0; if (audio.readyState >= 1) { try { audio.currentTime = local; } catch (e) { dlog('currentTime threw', String(e)); } } dlog('setTime', local | 0, 'now ct' + (audio.currentTime | 0)); }
+function settleSeek(e) {
+  if (wantLocal == null || audio.seeking) return; // mid-seek: leave it alone
+  if (Math.abs(audio.currentTime - wantLocal) < 1.5) { wantLocal = null; return; }
+  if (audio.readyState < 1 || seekTries >= 3) { if (seekTries >= 3) { dlog('seek gave up at ct' + (audio.currentTime | 0)); wantLocal = null; } return; }
+  seekTries++; dlog('re-seek', wantLocal | 0, 'on', e.type, 'ct' + (audio.currentTime | 0)); audio.currentTime = wantLocal;
+}
 for (const ev of ['loadedmetadata', 'canplay', 'playing', 'seeked', 'timeupdate']) audio.addEventListener(ev, settleSeek);
 audio.addEventListener('loadedmetadata', () => { // a real duration beats a guessed one
   const d = audio.duration; if (S.cur >= 0 && isFinite(d) && d > 0 && Math.abs(d - S.durs[S.cur]) > 1) { S.durs[S.cur] = d; reoffset(); }
@@ -792,7 +798,7 @@ addEventListener('beforeunload', save);
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
-const VERSION = '2026-09-13.9';
+const VERSION = '2026-09-13.10';
 if (new URLSearchParams(location.search).has('debug')) setInterval(() => { $('tPage').textContent = `v${VERSION} rs${audio.readyState} ct${audio.currentTime | 0} want${wantLocal == null ? '·' : wantLocal | 0} f${S.cur} dur${S.dur | 0} far${S.far | 0}`; }, 1000);
 $('ver').textContent = 'Calliope build ' + VERSION;
 const SPEEDS = [1, 1.25, 1.5, 2];
