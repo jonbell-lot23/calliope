@@ -191,6 +191,16 @@ body.playing .ctl .play svg.tri { display:none; }
   aside.open .ctl { order:4; }
   aside.open .foot { display:flex; order:5; margin-top:12px; }
   aside.searching .now .txt { display:none; }
+  /* tucked: swipe down once more and the sheet is just a handle, a thin progress line and a small play button */
+  body.tucked #book { padding-bottom:110px; }
+  aside.tucked { flex-direction:row; flex-wrap:wrap; align-items:center; gap:0 12px; padding-top:6px; padding-bottom:calc(8px + env(safe-area-inset-bottom)); }
+  aside.tucked .handle { flex:0 0 100%; margin-bottom:4px; }
+  aside.tucked .now, aside.tucked .apart, aside.tucked .times, aside.tucked .ctl .skip, aside.tucked .foot, aside.tucked .head, aside.tucked .search { display:none; }
+  aside.tucked .scrub { order:1; flex:1; margin:0; }
+  aside.tucked .bar { height:20px; }
+  aside.tucked .ctl { order:2; margin:0; flex:none; }
+  aside.tucked .ctl .play { width:36px; height:36px; }
+  aside.tucked .ctl .play svg { width:14px; height:14px; }
   .banner { top:12px; width:calc(100% - 24px); font-size:13px; }
   dialog { padding:20px; }
 }
@@ -679,7 +689,7 @@ function parseTime(v) { // "4500", "1:15:00", "1h15m", "75m", "1h15m30s"
   return null;
 }
 let noticeBack = null;
-function showNotice(msg, was, label = 'Take me back') { noticeBack = was; $('noticeMsg').textContent = msg; $('noticeBack').textContent = label; $('notice').classList.add('on'); document.querySelector('.now').classList.add('has-notice'); }
+function showNotice(msg, was, label = 'Take me back') { if (aside.classList.contains('tucked')) setTucked(false); noticeBack = was; $('noticeMsg').textContent = msg; $('noticeBack').textContent = label; $('notice').classList.add('on'); document.querySelector('.now').classList.add('has-notice'); }
 function hideNotice() { noticeBack = null; $('notice').classList.remove('on'); document.querySelector('.now').classList.remove('has-notice'); }
 $('noticeBack').onclick = () => { if (!noticeBack) return; const w = noticeBack; hideNotice(); S.follow = true; seekGlobal(w.t); scrollToWord(S.narr); updateApart(); };
 $('noticeOk').onclick = hideNotice;
@@ -783,9 +793,14 @@ $('bar').onclick = e => { const r = $('bar').getBoundingClientRect(); remember()
 $('playHere').onclick = () => { remember(); S.follow = true; seekGlobal(timeForWord(S.you)); play(); updateApart(); };
 $('goNarr').onclick = () => { S.follow = true; S.you = S.narr; scrollToWord(S.narr); updateApart(); };
 $('btnMark').onclick = startMark; $('cancelMark').onclick = endMark;
-$('handle').onclick = () => aside.classList.toggle('open');
+// the sheet has three heights on a phone: open, collapsed, tucked (handle + progress + play)
+function setTucked(on) { aside.classList.toggle('tucked', on); document.body.classList.toggle('tucked', on); if (on) aside.classList.remove('open'); try { localStorage.setItem('rl:tucked', on ? '1' : ''); } catch {} }
+function sheetUp() { if (aside.classList.contains('tucked')) setTucked(false); else aside.classList.add('open'); }
+function sheetDown() { if (aside.classList.contains('open')) aside.classList.remove('open'); else setTucked(true); }
+$('handle').onclick = () => { if (aside.classList.contains('tucked')) setTucked(false); else aside.classList.toggle('open'); };
+try { if (localStorage.getItem('rl:tucked')) setTucked(true); } catch {}
 let ty0 = null; aside.addEventListener('touchstart', e => { ty0 = e.touches[0].clientY; }, { passive: true });
-aside.addEventListener('touchend', e => { if (ty0 == null) return; const dy = e.changedTouches[0].clientY - ty0; ty0 = null; if (dy < -40) aside.classList.add('open'); else if (dy > 40 && !e.target.closest('.results')) aside.classList.remove('open'); }, { passive: true });
+aside.addEventListener('touchend', e => { if (ty0 == null) return; const dy = e.changedTouches[0].clientY - ty0; ty0 = null; if (dy < -40) sheetUp(); else if (dy > 40 && !e.target.closest('.results')) sheetDown(); }, { passive: true });
 $('q').addEventListener('focus', () => aside.classList.add('open'));
 $('btnShelf').onclick = () => $('dlg').showModal();
 $('dlgCancel').onclick = () => $('dlg').close();
