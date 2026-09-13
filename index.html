@@ -420,7 +420,7 @@ function buildFlow() {
     if (W[a].p !== curPage) { curPage = W[a].p; const pn = document.createElement('span'); pn.className = 'pn'; pn.textContent = 'p. ' + curPage; pn.dataset.p = curPage; frag.appendChild(pn); para = null; }
     if (newPara || !para) { para = document.createElement('p'); frag.appendChild(para); }
     const el = document.createElement('span'); el.className = 's'; el.dataset.s = k;
-    el.textContent = W.slice(a, sn.b + 1).filter(w => !header.has(a)).map(w => w.s).join(' ').replace(/(\w)- (\w)/g, '$1$2') + ' ';
+    el.textContent = W.slice(a, sn.b + 1).filter(w => !header.has(a)).map(w => w.s).join(' ').replace(/\u00AD\s*/g, '').replace(/(\w)- (\w)/g, '$1$2') + ' ';
     para.appendChild(el);
   });
   F.appendChild(frag);
