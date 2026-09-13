@@ -354,6 +354,7 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}
   rebuildAnchors();
   S.narr = Math.min(saved.narr || 0, S.words.length - 1);
   S.you = S.narr; S.follow = true;
+  if (served) localStorage.setItem('rl:last', served.title); else localStorage.removeItem('rl:last');
   await idb.set('last', served ? { served } : { pdf: pdfFile, audio: files, words: wordsFile || null });
   S.loaded = true;
   let t = saved.time ?? timeForWord(S.narr);
@@ -824,8 +825,12 @@ async function loadShelf() {
     try { return openBook(await fetchFile(q.get('pdf')), await Promise.all((q.get('audio') || '').split(',').filter(Boolean).map(fetchFile)), q.get('words') ? await fetchFile(q.get('words')) : null); }
     catch (e) { toast('Could not load ' + e.message); }
   }
+  // back to the book you were reading: look it up on the current shelf (URLs may have moved since), else use the stored copy
+  const lastTitle = localStorage.getItem('rl:last');
+  const onShelf = lastTitle && books.find(b => b.title === lastTitle);
+  if (onShelf) return openServed(onShelf);
   const last = await idb.get('last');
-  if (last?.served) return openServed(last.served);
+  if (last?.served) return openServed(books.find(b => b.title === last.served.title) || last.served);
   if (last?.pdf) return openBook(last.pdf, last.audio, last.words);
   if (books.length === 1) return openServed(books[0]);
   $('dlg').showModal();
