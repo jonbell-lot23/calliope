@@ -364,7 +364,9 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}
     S.narr = wordForTime(t); seekGlobal(t, { silent: true });
   }
   lastSent = -1; paintNarrator(S.narr, t, true);
-  book.classList.add('instant'); scrollToWord(S.narr); requestAnimationFrame(() => book.classList.remove('instant'));
+  if (opts.t == null && saved.you != null && Math.abs(saved.you - S.narr) > 40) S.you = Math.min(saved.you, S.words.length - 1); // you read on past the narrator
+  book.classList.add('instant'); scrollToWord(S.you); requestAnimationFrame(() => book.classList.remove('instant'));
+  updateApart();
   $('nowWhere').textContent = `${S.pages.length} pages · ${fmt(S.dur)}`;
 }
 
@@ -586,7 +588,7 @@ book.addEventListener('scroll', () => {
       const r = book.getBoundingClientRect(); const el = document.elementFromPoint(r.left + r.width / 2, r.top + book.clientHeight * 0.28)?.closest('.s');
       if (el) S.you = S.sentences[+el.dataset.s].a;
       if (byUser && S.follow && !audio.paused && Math.abs(S.you - S.narr) > 40) S.follow = false;
-      updateApart(); return;
+      updateApart(); save(); return;
     }
     const line = book.scrollTop + book.clientHeight * 0.34;
     for (const P of S.pages) {
@@ -601,7 +603,7 @@ book.addEventListener('scroll', () => {
       break;
     }
     if (byUser && S.follow && !audio.paused && Math.abs(S.you - S.narr) > 40) S.follow = false;
-    updateApart();
+    updateApart(); save();
   }, 80);
 }, { passive: true });
 // a hand scroll while playing means: let me look around (follow resumes when you come back or click a word)
@@ -727,9 +729,11 @@ function startMark() { if (!S.audioFiles.length) return toast('No audio in this 
 function endMark() { S.marking = false; document.body.classList.remove('marking'); $('banner').classList.remove('on'); }
 
 // ------------------------------------------------------------------ wiring
-function save() { if (S.key && S.loaded) localStorage.setItem(S.key, JSON.stringify({ narr: S.narr, time: globalTime(), manual: S.manual, speed: S.speed, recent: S.recent })); }
+function save() { if (S.key && S.loaded) localStorage.setItem(S.key, JSON.stringify({ narr: S.narr, you: S.you, time: globalTime(), manual: S.manual, speed: S.speed, recent: S.recent })); }
 setInterval(() => { if (S.loaded && !audio.paused) save(); }, 5000);
 addEventListener('beforeunload', save);
+addEventListener('pagehide', save);
+document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
 const SPEEDS = [1, 1.25, 1.5, 2];
 $('speeds').innerHTML = SPEEDS.map(s => `<button data-s="${s}">${s}×</button>`).join('');
