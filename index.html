@@ -754,7 +754,8 @@ async function openServed(b) {
 }
 async function loadShelf() {
   try {
-    const books = await (await fetch('books.json', { cache: 'no-store' })).json();
+    let r = await fetch('books.json', { cache: 'no-store' }); if (!r.ok) r = await fetch('books.public.json', { cache: 'no-store' }); // hosted copies carry only the sample
+    const books = await r.json();
     $('shelfList').innerHTML = books.map((b, i) => `<button data-i="${i}">${b.cover ? `<img src="${b.cover}" alt="">` : '<div class="ph"></div>'}<div><b>${esc(b.title)}</b><small>${esc(b.author || '')}</small></div></button>`).join('');
     $('shelfList').onclick = e => { const el = e.target.closest('button'); if (el) { $('dlg').close(); openServed(books[+el.dataset.i]); } };
     return books;

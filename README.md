@@ -75,7 +75,8 @@ make it exact:
 
 ## Hosted
 
-The app runs fine as a static site (it is one file). Hosted copies have no books on them:
+Live at **https://calliope.vercel.app** (source: https://github.com/jonbell-lot23/calliope).
+The app is a static site (one file). Hosted copies carry only the sample book:
 drag your PDF and audio onto the page and they are cached in your browser only.
 
 ## Files

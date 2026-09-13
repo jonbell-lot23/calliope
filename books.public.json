@@ -1,0 +1,11 @@
+[
+  {
+    "title": "The Lighthouse at Marrow Point",
+    "author": "a 90-second sample",
+    "pdf": "sample/sample.pdf",
+    "audio": [
+      "sample/sample.mp3"
+    ],
+    "words": "sample/sample.words.json"
+  }
+]
