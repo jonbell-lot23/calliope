@@ -349,7 +349,7 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}
   const saved = JSON.parse(localStorage.getItem(S.key) || '{}');
   S.manual = saved.manual || [];
   S.recent = saved.recent || [];
-  setSpeed(saved.speed || 1);
+  setSpeed(+localStorage.getItem('rl:speed') || saved.speed || 1); // your speed, not the book's
   rebuildAnchors();
   S.narr = Math.min(saved.narr || 0, S.words.length - 1);
   S.you = S.narr; S.follow = true;
@@ -739,8 +739,10 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) save(
 
 const SPEEDS = [1, 1.25, 1.5, 2];
 $('speeds').innerHTML = SPEEDS.map(s => `<button data-s="${s}">${s}×</button>`).join('');
-function setSpeed(s) { S.speed = s; audio.playbackRate = s; $('speeds').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.s === s)); }
-$('speeds').onclick = e => { const b = e.target.closest('button'); if (b) { setSpeed(+b.dataset.s); save(); } };
+function setSpeed(s) { S.speed = s; audio.playbackRate = audio.defaultPlaybackRate = s; $('speeds').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.s === s)); }
+$('speeds').onclick = e => { const b = e.target.closest('button'); if (b) { setSpeed(+b.dataset.s); localStorage.setItem('rl:speed', b.dataset.s); save(); } };
+// some browsers quietly reset playbackRate when a new source loads; put it back
+for (const ev of ['loadedmetadata', 'play']) audio.addEventListener(ev, () => { if (audio.playbackRate !== S.speed) audio.playbackRate = S.speed; });
 
 $('play').onclick = () => audio.paused ? play() : pause();
 $('back').onclick = () => seekGlobal(globalTime() - 15);
