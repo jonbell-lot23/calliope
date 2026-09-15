@@ -149,10 +149,43 @@ body.playing .ctl .play svg.tri { display:none; }
 
 .handle { display:none; }
 
+/* ============ mode: read / listen / both ============ */
+.mode { position:fixed; top:calc(12px + env(safe-area-inset-top)); left:12px; z-index:20; font:11px var(--sans); letter-spacing:.14em; text-transform:uppercase; }
+.mode > button { padding:8px 12px; border-radius:999px; background:var(--side); color:var(--cream-dim); box-shadow:0 8px 20px -10px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.07); }
+.mode > button:hover, .mode.open > button { color:var(--cream); }
+.mode .menu { display:none; position:absolute; top:38px; left:0; min-width:190px; padding:6px; border-radius:12px; background:var(--side-2); color:var(--cream); box-shadow:0 24px 60px -20px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.07); }
+.mode.open .menu { display:block; }
+.mode .menu button { display:flex; align-items:center; gap:10px; width:100%; padding:9px 10px; border-radius:8px; text-align:left; color:var(--cream-dim); font:13px var(--sans); letter-spacing:0; text-transform:none; }
+.mode .menu button small { display:block; font-size:11px; color:var(--cream-faint); }
+.mode .menu button:hover { background:var(--line); color:var(--cream); }
+.mode .menu button.on { color:var(--cream); }
+.mode .menu button.on::after { content:"✓"; margin-left:auto; color:var(--ember); }
+/* read: the book alone, edge to edge */
+body.mode-read { --sidebar:0px; }
+body.mode-read aside { display:none; }
+/* listen: the player alone, full screen at any width */
+body.mode-listen { --sidebar:0px; }
+body.mode-listen #book, body.mode-listen #line { visibility:hidden; }
+body.mode-listen aside { position:fixed; inset:0; width:100%; height:100dvh; max-height:none; border-radius:0; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:calc(24px + env(safe-area-inset-top)) 28px calc(22px + env(safe-area-inset-bottom)); transition:none; }
+body.mode-listen aside > * { width:min(100%, 440px); }
+body.mode-listen aside .handle { display:none; }
+body.mode-listen aside .head { display:flex; order:0; flex-direction:column; align-items:center; text-align:center; padding:0; gap:18px; margin-bottom:26px; }
+body.mode-listen aside .head img, body.mode-listen aside .head .ph { width:min(52vw, 220px); box-shadow:0 30px 60px -24px #000, 0 0 0 1px rgba(255,255,255,.06); }
+body.mode-listen aside .head h1 { font-size:26px; }
+body.mode-listen aside .head button.shelf { position:fixed; right:14px; top:calc(12px + env(safe-area-inset-top)); }
+body.mode-listen aside .search, body.mode-listen aside .now:not(.has-notice), body.mode-listen aside .now .txt, body.mode-listen aside .now .lbl, body.mode-listen aside .apart:not(.notice) { display:none; }
+body.mode-listen aside .now.has-notice { display:flex; order:4; flex:none; margin-top:18px; min-height:0; }
+body.mode-listen aside .scrub { order:1; margin-top:0; }
+body.mode-listen aside .ctl { order:2; margin-top:18px; gap:22px; }
+body.mode-listen aside .ctl .play { width:72px; height:72px; }
+body.mode-listen aside .ctl .play svg { width:26px; height:26px; }
+body.mode-listen aside .ctl .skip { width:48px; height:48px; font-size:12px; }
+body.mode-listen aside .foot { display:flex; order:3; justify-content:center; margin-top:22px; }
+
 /* ============ mobile: the sidebar becomes a bottom sheet ============ */
 @media (max-width: 760px) {
   :root { --sidebar:0px; }
-  #book { padding:22px 0 240px; }
+  #book { padding:54px 0 240px; } /* room for the mode pill above the first line */
   .pages { width:calc(100% - 16px); }
   .page { margin-bottom:14px; }
   #line { top:28%; }
@@ -252,6 +285,14 @@ dialog .row .ghost { color:var(--cream-dim); }
 <div id="loading"><div><div id="loadWhat">Loading…</div><ol id="loadSteps"></ol></div></div>
 <main id="book"><div class="pages" id="pages"></div><div class="flow" id="flow"></div></main>
 <div id="line"></div>
+<div class="mode" id="mode">
+  <button id="modeBtn" title="Read, listen, or both">Both ▾</button>
+  <div class="menu" id="modeMenu">
+    <button data-m="read">Read<small>just the book</small></button>
+    <button data-m="listen">Listen<small>just the player</small></button>
+    <button data-m="both">Both<small>book and player</small></button>
+  </div>
+</div>
 <div class="banner" id="banner">Audio is playing. Click the word the narrator is on right now. <button id="cancelMark">cancel</button></div>
 
 <aside>
@@ -693,7 +734,7 @@ let scrollT = 0;
 book.addEventListener('scroll', () => {
   if (!S.loaded) return;
   const byUser = performance.now() - programmatic > 900;
-  if (byUser && book.scrollTop <= 0 && mq.matches && !aside.classList.contains('full')) setFull(true); // pulled the book past its top: just the audio
+  if (byUser && book.scrollTop <= 0 && mq.matches && S.mode === 'both' && !aside.classList.contains('full')) setFull(true); // pulled the book past its top: just the audio
   clearTimeout(scrollT); scrollT = setTimeout(() => {
     if (inFlow()) {
       const r = book.getBoundingClientRect(); const el = document.elementFromPoint(r.left + r.width / 2, r.top + book.clientHeight * 0.28)?.closest('.s');
@@ -849,7 +890,7 @@ addEventListener('beforeunload', save);
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
-const VERSION = '2026-09-15.1';
+const VERSION = '2026-09-15.2';
 if (new URLSearchParams(location.search).has('debug')) setInterval(() => { $('tPage').textContent = `v${VERSION} rs${audio.readyState} ct${audio.currentTime | 0} want${wantLocal == null ? '·' : wantLocal | 0} f${S.cur} dur${S.dur | 0} far${S.far | 0}`; }, 1000);
 $('ver').textContent = 'Calliope build ' + VERSION;
 const SPEEDS = [1, 1.25, 1.5, 2];
@@ -868,12 +909,34 @@ $('bar').onclick = e => { const r = $('bar').getBoundingClientRect(); remember()
 $('playHere').onclick = () => { remember(); S.follow = true; seekGlobal(timeForWord(S.you)); play(); updateApart(); };
 $('goNarr').onclick = () => { S.follow = true; S.you = S.narr; scrollToWord(S.narr); updateApart(); };
 $('btnMark').onclick = startMark; $('cancelMark').onclick = endMark;
+// ------------------------------------------------------------------ mode: read / listen / both
+const MODES = { read: 'Read', listen: 'Listen', both: 'Both' };
+function setMode(m) {
+  if (!MODES[m]) m = 'both';
+  S.mode = m;
+  document.body.classList.remove('mode-read', 'mode-listen', 'mode-both'); document.body.classList.add('mode-' + m);
+  $('modeBtn').textContent = MODES[m] + ' ▾';
+  $('modeMenu').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+  if (m === 'listen') { aside.classList.remove('open', 'tucked', 'full'); document.body.classList.remove('tucked'); }
+  $('mode').classList.remove('open');
+  try { localStorage.setItem('rl:mode', m); } catch {}
+  if (S.loaded) { // the book's width changed: redraw what's mounted and stay on your place
+    const keep = S.you;
+    for (const P of S.pages) if (P.mounted) { unmountPage(P); mountPage(P); }
+    book.classList.add('instant'); scrollToWord(keep); requestAnimationFrame(() => book.classList.remove('instant'));
+  }
+}
+$('modeBtn').onclick = e => { e.stopPropagation(); $('mode').classList.toggle('open'); };
+$('modeMenu').onclick = e => { const b = e.target.closest('button'); if (b) { e.stopPropagation(); setMode(b.dataset.m); } };
+document.addEventListener('click', e => { if (!e.target.closest('#mode')) $('mode').classList.remove('open'); });
+try { setMode(localStorage.getItem('rl:mode') || 'both'); } catch { setMode('both'); }
+
 // the sheet has three heights on a phone: open, collapsed, tucked (handle + progress + play)
 function setTucked(on) { aside.classList.toggle('tucked', on); document.body.classList.toggle('tucked', on); if (on) aside.classList.remove('open'); try { localStorage.setItem('rl:tucked', on ? '1' : ''); } catch {} }
 function setFull(on) { aside.classList.toggle('full', on); if (on) { setTucked(false); aside.classList.remove('open'); } }
-function sheetUp() { if (aside.classList.contains('tucked')) setTucked(false); else if (aside.classList.contains('open')) setFull(true); else aside.classList.add('open'); }
-function sheetDown() { if (aside.classList.contains('full')) setFull(false); else if (aside.classList.contains('open')) aside.classList.remove('open'); else setTucked(true); }
-$('handle').onclick = () => { if (aside.classList.contains('full')) setFull(false); else if (aside.classList.contains('tucked')) setTucked(false); else aside.classList.toggle('open'); };
+function sheetUp() { if (S.mode === 'listen') return; if (aside.classList.contains('tucked')) setTucked(false); else if (aside.classList.contains('open')) setFull(true); else aside.classList.add('open'); }
+function sheetDown() { if (S.mode === 'listen') return; if (aside.classList.contains('full')) setFull(false); else if (aside.classList.contains('open')) aside.classList.remove('open'); else setTucked(true); }
+$('handle').onclick = () => { if (S.mode === 'listen') return; if (aside.classList.contains('full')) setFull(false); else if (aside.classList.contains('tucked')) setTucked(false); else aside.classList.toggle('open'); };
 try { if (localStorage.getItem('rl:tucked')) setTucked(true); } catch {}
 let ty0 = null; aside.addEventListener('touchstart', e => { ty0 = e.touches[0].clientY; }, { passive: true });
 aside.addEventListener('touchend', e => { if (ty0 == null) return; const dy = e.changedTouches[0].clientY - ty0; ty0 = null; if (dy < -40) sheetUp(); else if (dy > 40 && !e.target.closest('.results')) sheetDown(); }, { passive: true });
