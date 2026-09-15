@@ -377,7 +377,7 @@ async function openBook(pdfFile, audioFiles, wordsFile, served = null, opts = {}
   let files = [...(audioFiles || [])];
   if (S.transcript?.files?.length) { const order = S.transcript.files.map(f => f.name); files.sort((a, b) => { const ia = order.indexOf(a.name), ib = order.indexOf(b.name); return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib); }); }
   else if (files.every(f => f.name)) files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-  S.audioFiles = files; S.cur = -1; audio.removeAttribute('src');
+  S.audioFiles = files; S.cur = -1; S.pos = null; audio.removeAttribute('src');
   const isUrl = f => typeof f === 'string';
   const tf = S.transcript?.files || [];
   const probe = f => new Promise(res => { const a = new Audio(); const u = isUrl(f) ? f : URL.createObjectURL(f); const done = d => { res(d); if (!isUrl(f)) URL.revokeObjectURL(u); }; a.preload = 'metadata'; a.onloadedmetadata = () => done(a.duration); a.onerror = () => done(0); setTimeout(() => done(0), 15000); a.src = u; });
@@ -577,13 +577,28 @@ function seekGlobal(t, opts = {}) {
   t = Math.min(Math.max(0, t), Math.max(0, S.dur - 0.5));
   let i = 0; while (i + 1 < S.offsets.length && S.offsets[i+1] <= t) i++;
   const wasPlaying = !audio.paused;
+  S.pos = t; snapbacks = 0;
   loadFile(i); setTime(t - S.offsets[i]);
   if (wasPlaying || S.wantPlay) audio.play().catch(() => {});
   if (!opts.silent) { S.narr = wordForTime(t); paintNarrator(S.narr, t, true); }
 }
 function play() { if (!S.audioFiles.length) return toast('No audio in this book'); if (S.cur < 0) seekGlobal(timeForWord(S.narr)); S.wantPlay = true; audio.play().catch(() => {}); }
 function pause() { S.wantPlay = false; audio.pause(); }
-audio.addEventListener('ended', () => { if (S.cur + 1 < S.audioFiles.length) { loadFile(S.cur + 1); setTime(0); audio.play().catch(() => {}); } });
+audio.addEventListener('ended', () => { if (S.cur + 1 < S.audioFiles.length) { loadFile(S.cur + 1); S.pos = S.offsets[S.cur]; snapbacks = 0; setTime(0); audio.play().catch(() => {}); } });
+// The element is not the source of truth for where you are; S.pos is. iOS Safari snaps a file back to 0 on its own
+// (around the first play after a seek, or when the book auto-opened before any tap so the seek never landed).
+// When the element says "start of file" but we know you were well into it and nobody asked for that, put it back.
+let snapbacks = 0;
+function guardPos(e) {
+  if (!S.loaded || S.cur < 0 || S.pos == null || wantLocal != null || audio.seeking) return false;
+  const local = S.pos - S.offsets[S.cur];
+  if (audio.currentTime >= 2 || local <= 5) return false;
+  if (snapbacks >= 5) return false; // something else is wrong; don't fight it forever
+  snapbacks++; dlog('snapback', e.type, 'ct' + (audio.currentTime | 0), 'want', local | 0);
+  setTime(local);
+  return true;
+}
+audio.addEventListener('playing', guardPos);
 audio.addEventListener('play', () => { document.body.classList.add('playing'); updateApart(); mediaPosition(); });
 // lock screen & earbuds: what's playing, and the usual controls
 function mediaMeta() {
@@ -604,7 +619,9 @@ audio.addEventListener('seeked', mediaPosition); audio.addEventListener('ratecha
 audio.addEventListener('pause', () => { document.body.classList.remove('playing'); updateApart(); save(); });
 audio.addEventListener('timeupdate', () => {
   if (!S.loaded) return;
+  if (guardPos({ type: 'timeupdate' })) return;
   const t = globalTime(), w = wordForTime(t), changed = w !== S.narr;
+  if (wantLocal == null) S.pos = t;
   S.narr = w; paintNarrator(w, t, changed);
   if (S.follow && !audio.paused) keepInView(w);
 });
@@ -826,13 +843,13 @@ function startMark() { if (!S.audioFiles.length) return toast('No audio in this 
 function endMark() { S.marking = false; document.body.classList.remove('marking'); $('banner').classList.remove('on'); }
 
 // ------------------------------------------------------------------ wiring
-function save() { if (!S.key || !S.loaded) return; let time = globalTime(); if (time < 2 && S.narr > 40) time = timeForWord(S.narr); /* never write 0 over a real position */ S.far = Math.max(S.far || 0, time); localStorage.setItem(S.key, JSON.stringify({ narr: S.narr, you: S.you, time, manual: S.manual, speed: S.speed, recent: S.recent, far: S.far, farSeen: S.farSeen || 0 })); }
+function save() { if (!S.key || !S.loaded) return; let time = globalTime(); if (S.pos != null && Math.abs(time - S.pos) > 5) time = S.pos; /* the element snapped somewhere we didn't ask for */ if (time < 2 && S.narr > 40) time = timeForWord(S.narr); /* never write 0 over a real position */ S.far = Math.max(S.far || 0, time); localStorage.setItem(S.key, JSON.stringify({ narr: S.narr, you: S.you, time, manual: S.manual, speed: S.speed, recent: S.recent, far: S.far, farSeen: S.farSeen || 0 })); }
 setInterval(() => { if (S.loaded && !audio.paused) { save(); mediaPosition(); } }, 5000);
 addEventListener('beforeunload', save);
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
-const VERSION = '2026-09-13.13';
+const VERSION = '2026-09-15.1';
 if (new URLSearchParams(location.search).has('debug')) setInterval(() => { $('tPage').textContent = `v${VERSION} rs${audio.readyState} ct${audio.currentTime | 0} want${wantLocal == null ? '·' : wantLocal | 0} f${S.cur} dur${S.dur | 0} far${S.far | 0}`; }, 1000);
 $('ver').textContent = 'Calliope build ' + VERSION;
 const SPEEDS = [1, 1.25, 1.5, 2];
