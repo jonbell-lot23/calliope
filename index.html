@@ -267,6 +267,8 @@ dialog h2 { font:italic 500 24px var(--serif); margin:0 0 16px; }
 .shelfList img, .shelfList .ph { width:34px; aspect-ratio:2/3; object-fit:cover; border-radius:2px; background:var(--line); flex:none; }
 .shelfList b { display:block; font:500 15px var(--serif); }
 .shelfList small { color:var(--cream-dim); }
+.shelfList button.last { border-color:var(--line); }
+.shelfList button.last small { color:var(--ember-soft); }
 .field { display:grid; grid-template-columns:90px 1fr; align-items:center; gap:10px; padding:10px 0; border-top:1px solid var(--line); }
 .field label { font-weight:600; font-size:13px; }
 .field small { display:block; color:var(--cream-dim); font-weight:400; font-size:11.5px; }
@@ -921,7 +923,7 @@ addEventListener('beforeunload', save);
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
-const VERSION = '2026-09-15.2';
+const VERSION = '2026-10-06.1';
 if (new URLSearchParams(location.search).has('debug')) setInterval(() => { $('tPage').textContent = `v${VERSION} rs${audio.readyState} ct${audio.currentTime | 0} want${wantLocal == null ? '·' : wantLocal | 0} f${S.cur} dur${S.dur | 0} far${S.far | 0}`; }, 1000);
 $('ver').textContent = 'Calliope build ' + VERSION;
 const SPEEDS = [1, 1.25, 1.5, 2];
@@ -1019,8 +1021,11 @@ async function loadShelf() {
     const books = await r.json();
     const unlocked = JSON.parse(localStorage.getItem('rl:unlocked') || '[]');
     books.forEach(b => { if (b.hidden && unlocked.includes(b.title)) b.hidden = false; });
-    $('shelfList').innerHTML = books.filter(b => !b.hidden).map((b, i) => `<button data-i="${i}">${b.cover ? `<img src="${b.cover}" alt="">` : '<div class="ph"></div>'}<div><b>${esc(b.title)}</b><small>${esc(b.author || '')}</small></div></button>`).join('');
-    $('shelfList').onclick = e => { const el = e.target.closest('button'); if (el) { $('dlg').close(); openServed(books.filter(b => !b.hidden)[+el.dataset.i]); } };
+    // the book you were last in goes first, marked, so picking up again is one tap
+    const last = localStorage.getItem('rl:last');
+    const shown = books.filter(b => !b.hidden).sort((a, b) => (b.title === last) - (a.title === last));
+    $('shelfList').innerHTML = shown.map((b, i) => `<button data-i="${i}"${b.title === last ? ' class="last"' : ''}>${b.cover ? `<img src="${b.cover}" alt="">` : '<div class="ph"></div>'}<div><b>${esc(b.title)}</b><small>${b.title === last ? 'Continue where you left off' : esc(b.author || '')}</small></div></button>`).join('');
+    $('shelfList').onclick = e => { const el = e.target.closest('button'); if (el) { $('dlg').close(); openServed(shown[+el.dataset.i]); } };
     return books;
   } catch { return []; }
 }
@@ -1041,14 +1046,14 @@ async function loadShelf() {
     try { return openBook(await fetchFile(q.get('pdf')), await Promise.all((q.get('audio') || '').split(',').filter(Boolean).map(fetchFile)), q.get('words') ? await fetchFile(q.get('words')) : null); }
     catch (e) { toast('Could not load ' + e.message); }
   }
-  // back to the book you were reading: look it up on the current shelf (URLs may have moved since), else use the stored copy
-  const lastTitle = localStorage.getItem('rl:last');
-  const onShelf = lastTitle && books.find(b => b.title === lastTitle);
-  if (onShelf) return openServed(onShelf);
+  // Always start by picking a book. Opening the last one by itself (before any
+  // tap) left iOS unable to load the audio, so the saved spot never landed and
+  // playback started from the beginning. A tap on the shelf lets it load.
   const last = await idb.get('last');
-  if (last?.served) return openServed(books.find(b => b.title === last.served.title) || last.served);
-  if (last?.pdf) return openBook(last.pdf, last.audio, last.words);
-  if (books.length === 1) return openServed(books[0]);
+  if (last?.pdf && !last.served) { // a dropped-in book, kept in this browser only
+    $('shelfList').insertAdjacentHTML('afterbegin', `<button id="shelfLocal" class="last"><div class="ph"></div><div><b>${esc(last.pdf.name.replace(/\.pdf$/i, ''))}</b><small>Continue where you left off</small></div></button>`);
+    $('shelfLocal').onclick = e => { e.stopPropagation(); $('dlg').close(); openBook(last.pdf, last.audio, last.words); };
+  }
   $('dlg').showModal();
 })();
 </script>
