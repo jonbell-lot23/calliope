@@ -19,5 +19,17 @@
       "https://wiwaaa0xjxl3hdmt.public.blob.vercel-storage.com/reality-is-broken/reality-is-broken-book-MUDt11qnl1w3oRwG0eyUY3U13pNtgj.mp3"
     ],
     "words": "https://wiwaaa0xjxl3hdmt.public.blob.vercel-storage.com/reality-is-broken/reality-is-broken-book.words-Y4exf6kAfq8AUrP4pEPz9XQLBjOCp8.json"
+  },
+  {
+    "title": "The Art of Gathering",
+    "author": "Priya Parker",
+    "slug": "gathering",
+    "hidden": true,
+    "cover": "https://wiwaaa0xjxl3hdmt.public.blob.vercel-storage.com/art-of-gathering/cover-WAgQbFVgTuDKcHgFfWeJz01wvFBAZO.jpg",
+    "pdf": "https://wiwaaa0xjxl3hdmt.public.blob.vercel-storage.com/art-of-gathering/art-of-gathering-book-g3lBIx2SAU36S3uxuaDzsapcjd3gtj.pdf",
+    "audio": [
+      "https://wiwaaa0xjxl3hdmt.public.blob.vercel-storage.com/art-of-gathering/art-of-gathering-book-Y1jLxMY5QGK4BfuRcijUyWRTmCwQsU.m4a"
+    ],
+    "words": "https://wiwaaa0xjxl3hdmt.public.blob.vercel-storage.com/art-of-gathering/art-of-gathering-book.words.json"
   }
 ]
