@@ -135,16 +135,16 @@ aside.searching .results { display:block; }
 body.playing .ctl .play svg.pause { display:block; }
 body.playing .ctl .play svg.tri { display:none; }
 
-.foot { display:flex; align-items:center; gap:10px; margin-top:18px; font-size:12px; color:var(--cream-faint); position:relative; z-index:1; }
-.foot .chips { display:flex; gap:4px; }
-.foot .chips button { padding:3px 8px; border-radius:999px; border:1px solid transparent; color:var(--cream-faint); font-variant-numeric:tabular-nums; }
+.foot { display:flex; align-items:center; gap:6px; margin-top:18px; font-size:12px; color:var(--cream-faint); position:relative; z-index:1; }
+.foot .chips { display:flex; gap:2px; }
+.foot .chips button { padding:3px 6px; border-radius:999px; border:1px solid transparent; color:var(--cream-faint); font-variant-numeric:tabular-nums; }
 .foot .chips button.on { color:var(--cream); border-color:var(--line); }
 .foot .chips button:hover { color:var(--cream); }
 .foot .sp { flex:1; }
-.foot .pill { padding:3px 9px; border-radius:999px; border:1px solid var(--line); white-space:nowrap; }
+.foot .pill { padding:3px 7px; border-radius:999px; border:1px solid var(--line); white-space:nowrap; }
 .foot .pill.good { color:#8fc59a; border-color:#3f6a49; }
 .foot .pill.warn { color:var(--ember-soft); border-color:#6b3a2a; }
-.foot .pin { width:26px; height:26px; border-radius:50%; display:grid; place-items:center; color:var(--cream-faint); font-size:14px; }
+.foot .pin { width:24px; height:24px; border-radius:50%; display:grid; place-items:center; color:var(--cream-faint); font-size:14px; }
 .foot .pin:hover { color:var(--cream); background:var(--line); }
 
 .handle { display:none; }
@@ -303,7 +303,7 @@ dialog .row .ghost { color:var(--cream-dim); }
     <button class="shelf" id="btnShelf" title="Open a book">☰</button>
   </div>
 
-  <div class="search"><input id="q" type="search" placeholder="Find in book…  ( / )" autocomplete="off" spellcheck="false"><button id="qClear" title="Clear">✕</button></div>
+  <div class="search"><input id="q" type="search" placeholder="Find in book, or a time like 1:15:00  ( / )" autocomplete="off" spellcheck="false"><button id="qClear" title="Clear">✕</button></div>
   <div class="now">
     <div class="lbl"><span id="nowLbl">Narrator</span><i id="nowWhere"></i></div>
     <div class="txt" id="nowTxt"></div>
@@ -333,6 +333,7 @@ dialog .row .ghost { color:var(--cream-dim); }
     <div class="chips" id="speeds"></div>
     <span class="sp"></span>
     <span class="pill" id="syncPill">no book</span>
+    <button class="pin" id="btnSleep" title="Sleep timer">💤</button>
     <button class="pin" id="btnShare" title="Copy a link to this moment">🔗</button>
     <button class="pin" id="btnMark" title="Fix the sync: click the word the narrator is on">📍</button>
   </div>
@@ -813,6 +814,24 @@ function shareLink() {
 }
 $('btnShare').onclick = shareLink;
 
+// ------------------------------------------------------------------ sleep timer
+// For listening in bed: off → 15 → 30 → 45 minutes, then off again. When it
+// lands it pauses and says so; nothing else is touched, so the position is
+// exactly where the narrator stopped.
+const SLEEPS = [0, 15, 30, 45]; let sleepIdx = 0, sleepAt = null;
+function drawSleep() {
+  const b = $('btnSleep'); const on = sleepAt != null;
+  b.classList.toggle('on', on);
+  b.title = on ? `Sleep timer: ${Math.max(0, Math.ceil((sleepAt - Date.now()) / 60000))} min left — tap to change` : 'Sleep timer';
+  b.style.color = on ? 'var(--cream)' : '';
+}
+$('btnSleep').onclick = () => {
+  sleepIdx = (sleepIdx + 1) % SLEEPS.length; const m = SLEEPS[sleepIdx];
+  sleepAt = m ? Date.now() + m * 60000 : null; drawSleep();
+  toast(m ? `Sleeping in ${m} min` : 'Sleep timer off');
+};
+setInterval(() => { if (sleepAt == null) return; if (Date.now() >= sleepAt) { sleepAt = null; sleepIdx = 0; pause(); drawSleep(); toast('Sleep timer: paused'); } else drawSleep(); }, 1000);
+
 // ------------------------------------------------------------------ recent places
 function remember() {
   if (!S.loaded || S.cur < 0) return;
@@ -838,6 +857,16 @@ function runSearch() {
   aside.classList.toggle('searching', q.length > 0);
   hits = []; sel = -1;
   if (!q) { $('nowLbl').textContent = 'Narrator'; if (document.activeElement === $('q')) { aside.classList.add('searching'); renderRecent(); } else $('results').innerHTML = ''; return; }
+  // A time, not words: "1:15:30", "75m", "1h15m". The one thing Sherry asked
+  // for that only a URL could do until now. Offered as a single result so
+  // Enter takes you there, same as a text hit would.
+  const tt = parseTime(q);
+  if (tt != null && S.loaded) {
+    const ok = S.dur && tt <= S.dur;
+    $('nowLbl').textContent = ok ? 'Go to time' : 'Past the end';
+    $('results').innerHTML = ok ? `<button data-t="${tt}"><small>${fmt(tt)}${S.dur ? ' of ' + fmt(S.dur) : ''}</small>Start listening from here</button>` : `<div class="none">The book is ${fmt(S.dur)} long.</div>`;
+    return;
+  }
   const toks = q.split(/\s+/).map(norm).filter(Boolean); if (!toks.length) return;
   const W = S.words, n = toks.length; hits = [];
   for (let i = 0; i + n <= W.length && hits.length < 60; i++) {
@@ -853,7 +882,9 @@ function runSearch() {
     return `<button data-k="${k}"><small>p. ${W[i].p}</small>${a > 0 ? '…' : ''}${snip}${b < W.length - 1 ? '…' : ''}</button>`;
   }).join('') : `<div class="none">Nothing matches "${esc(q)}".</div>`;
 }
+function goTime(t) { $('q').value = ''; $('q').blur(); runSearch(); remember(); S.follow = true; seekGlobal(t); play(); updateApart(); toast(`Playing from ${fmt(t)}`); }
 function goHit(k) {
+  const tb = $('results').querySelector('button[data-t]'); if (tb) return goTime(+tb.dataset.t);
   if (!hits.length) return; sel = Math.max(0, Math.min(hits.length - 1, k));
   $('results').querySelectorAll('button').forEach((b, j) => b.classList.toggle('sel', j === sel));
   goTo(hits[sel]);
@@ -866,7 +897,7 @@ $('q').addEventListener('keydown', e => {
   else if (e.key === 'ArrowUp') { e.preventDefault(); goHit(sel - 1); }
 });
 $('qClear').onclick = () => { $('q').value = ''; runSearch(); };
-$('results').addEventListener('click', e => { const b = e.target.closest('button'); dlog('tap result', b ? (b.dataset.r ?? 'hit' + b.dataset.k) : 'miss'); if (!b) return; if (b.dataset.r != null) { const r = S.recent[+b.dataset.r]; $('q').blur(); goTo(r.i, r.t); } else goHit(+b.dataset.k); });
+$('results').addEventListener('click', e => { const b = e.target.closest('button'); dlog('tap result', b ? (b.dataset.r ?? 'hit' + b.dataset.k) : 'miss'); if (!b) return; if (b.dataset.t != null) goTime(+b.dataset.t); else if (b.dataset.r != null) { const r = S.recent[+b.dataset.r]; $('q').blur(); goTo(r.i, r.t); } else goHit(+b.dataset.k); });
 $('q').addEventListener('focus', runSearch);
 $('q').addEventListener('blur', () => { if (!$('q').value.trim()) setTimeout(() => { if (!$('q').value.trim() && document.activeElement !== $('q')) { aside.classList.remove('searching'); $('nowLbl').textContent = 'Narrator'; } }, 150); });
 
